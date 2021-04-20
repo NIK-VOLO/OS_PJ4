@@ -26,6 +26,15 @@ char diskfile_path[PATH_MAX];
 
 // Declare your in-memory data structures here
 
+//Global in-memory data for the superblock
+struct superblock* sb;
+
+//Bitmaps are typedef unsigned char*
+bitmap_t inode_map;
+bitmap_t data_map;
+
+
+
 /* 
  * Get available inode number from bitmap
  */
@@ -139,9 +148,43 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
  */
 int tfs_mkfs() {
 
-	// Call dev_init() to initialize (Create) Diskfile
+	int open;
+	
 
-	// write superblock information
+	// Call dev_init() to initialize (Create) Diskfile
+	// dev_init() internally checks if the disk file has been created yet.
+	dev_init(diskfile_path);
+
+	// Write superblock information &
+		// Block 0 reserved for superblock
+		// Create Superblock struct
+		// Copy data to buffer
+		// write the buffer contents to disk
+	open = dev_open(diskfile_path);
+	if(open == -1){
+		return -1;
+	}
+
+	sb = malloc(sizeof(struct superblock));
+	if(sb == NULL){
+		// Malloc Failed somehow
+		return -1;
+	}
+	sb->magic_num = MAGIC_NUM;
+	sb->max_inum = MAX_INUM;
+	sb->max_dnum = MAX_DNUM;
+	sb->i_bitmap_blk = 1;
+	sb->d_bitmap_blk = 2;
+	sb->i_start_blk = 3;
+	sb->d_start_blk = 4;
+
+	// if(sb->magic_num == NULL || sb->max_inum == NULL || sb->max_dnum == NULL
+	// || sb->i_bitmap_blk == NULL || sb->d_bitmap_blk == NULL
+	// || sb->i_start_blk == NULL || sb->d_start_blk == NULL){
+	// 	// Mallocing superblock fields failed somehow
+	// 	return -1;
+	// }
+	
 
 	// initialize inode bitmap
 
@@ -160,17 +203,31 @@ int tfs_mkfs() {
  */
 static void *tfs_init(struct fuse_conn_info *conn) {
 
+	int mkfs_res = -1;
+
 	// Step 1a: If disk file is not found, call mkfs
+	// Partition bitmap block, inode block, data block
+	if(diskfile_path == NULL){
 
-  // Step 1b: If disk file is found, just initialize in-memory data structures
-  // and read superblock from disk
+		mkfs_res = tfs_mkfs();
 
+		if(mkfs_res < 0){
+			perror("tfs_mkfs failed");
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	// Step 1b: If disk file is found, just initialize in-memory data structures
+	// and read superblock from disk
+
+	//Optional return value
 	return NULL;
 }
 
 static void tfs_destroy(void *userdata) {
 
 	// Step 1: De-allocate in-memory data structures
+	free(sb);
 
 	// Step 2: Close diskfile
 

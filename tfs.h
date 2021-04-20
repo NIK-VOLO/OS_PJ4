@@ -49,6 +49,7 @@ struct dirent {
 
 /*
  * bitmap operations
+ * typedef unsigned char*
  */
 typedef unsigned char* bitmap_t;
 
