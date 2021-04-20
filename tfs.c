@@ -22,6 +22,7 @@
 #include "block.h"
 #include "tfs.h"
 
+
 char diskfile_path[PATH_MAX];
 
 // Declare your in-memory data structures here
@@ -32,6 +33,15 @@ struct superblock* sb;
 //Bitmaps are typedef unsigned char*
 bitmap_t inode_map;
 bitmap_t data_map;
+
+//Helper Function declarations:
+
+static int num_blocks_needed(int block_size, int num_bytes_needed);
+
+/* Returns the number of disk blocks are required to store some amount of bytes */
+static int num_blocks_needed(int block_size, int num_bytes_needed){
+	return num_bytes_needed/block_size + ((num_bytes_needed % block_size) != 0);
+}
 
 
 
@@ -149,6 +159,16 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 int tfs_mkfs() {
 
 	int open;
+	int num_sup_blocks;
+	int imap_size;
+	int dmap_size;
+	int num_imap_blocks;
+	int num_dmap_blocks;
+	int max_inode_bytes;
+	//int max_data_bytes;
+	int num_inode_blocks;
+	//int num_data_blocks;
+	int block_count = 0;
 	
 
 	// Call dev_init() to initialize (Create) Diskfile
@@ -165,25 +185,51 @@ int tfs_mkfs() {
 		return -1;
 	}
 
+	//Allocate space in memory for superblock
 	sb = malloc(sizeof(struct superblock));
+	printf("Size of superblock %ld: ",sizeof(sb));
 	if(sb == NULL){
 		// Malloc Failed somehow
 		return -1;
 	}
+
+	//Calculate the number of blocks needed to store the superblock
+	num_sup_blocks = num_blocks_needed(BLOCK_SIZE, sizeof(struct superblock));
+
+	//Calculate the size of the inode bitmap
+	imap_size = MAX_INUM/8;
+
+	//Calc size of data bitmap
+	dmap_size = MAX_DNUM/8;
+
+	//Calc the number of blocks needed to store the inode bitmap
+	num_imap_blocks = num_blocks_needed(BLOCK_SIZE, imap_size);
+
+	//Calc the number of blocks needed to store the data bitmap
+	num_dmap_blocks = num_blocks_needed(BLOCK_SIZE, dmap_size);
+
+	//Calc the number of maximum possible bytes needed to store all inodes
+	max_inode_bytes = sizeof(struct inode) * MAX_INUM;
+
+	//Calc the number of blocks needed for all of the inodes
+	num_inode_blocks = num_blocks_needed(BLOCK_SIZE, max_inode_bytes);
+
 	sb->magic_num = MAGIC_NUM;
 	sb->max_inum = MAX_INUM;
 	sb->max_dnum = MAX_DNUM;
-	sb->i_bitmap_blk = 1;
-	sb->d_bitmap_blk = 2;
-	sb->i_start_blk = 3;
-	sb->d_start_blk = 4;
-
-	// if(sb->magic_num == NULL || sb->max_inum == NULL || sb->max_dnum == NULL
-	// || sb->i_bitmap_blk == NULL || sb->d_bitmap_blk == NULL
-	// || sb->i_start_blk == NULL || sb->d_start_blk == NULL){
-	// 	// Mallocing superblock fields failed somehow
-	// 	return -1;
-	// }
+	//block_count starts at 0. Incremented by how many blocks are required for each section
+	//Increment by how many blocks needed by superblock data
+	block_count += num_sup_blocks;
+	sb->i_bitmap_blk = block_count; // Should == 1
+	//Increment by how many blocks needed by inode bitmap
+	block_count += num_imap_blocks;
+	sb->d_bitmap_blk = block_count;
+	//Increment by how many blocks needed by data bitmap
+	block_count += num_dmap_blocks;
+	sb->i_start_blk = block_count;
+	//Increment by how many blocks needed by inodes section
+	block_count += num_inode_blocks;
+	sb->d_start_blk = block_count;
 	
 
 	// initialize inode bitmap
