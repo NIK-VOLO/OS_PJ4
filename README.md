@@ -41,6 +41,7 @@ File System
         - Type
         - Direct/indirect pointers: 
             - Direct: What physical blocks is the file using
+                - IDEA: The data type is an int --> Consider the int as an offset from the start of the data block region ***
         - Each block can have block_size/inode_size inodes
         - Once we know the inode number we can fetch inode information by going to the block and calculating the position where it should be
         - stat() will store information about the inode
@@ -64,6 +65,10 @@ File System
 
     - readi/writei():
         - Reading/writing inode blocks
-        - readi --> If inode# known, 
+        - Each inode block can have more than 1 inode
+        - readi --> If inode# known, it knows the size of the inode block and the size of the inode struct, finds the exact block and position the inode resides. 
+            - Fetches inode information from disk and assigns it to an inode struct
+
+        
          # Left off here, review video
 

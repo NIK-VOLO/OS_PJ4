@@ -1,6 +1,6 @@
 <mxfile>
     <diagram id="OXVlFemsFscIXyeCUECc" name="Page-1">
-        <mxGraphModel dx="781" dy="798" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="1013" dy="868" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -159,6 +159,9 @@
                 </mxCell>
                 <mxCell id="66" value="Data Block" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
                     <mxGeometry x="560" y="1230" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="68" value="Size of bitmap = Number of data blocks / 8 bits = MAX_DNUM / 8 =&amp;nbsp;&amp;nbsp;&lt;span style=&quot;color: rgb(181 , 206 , 168) ; background-color: rgb(30 , 30 , 30) ; font-family: &amp;#34;consolas&amp;#34; , &amp;#34;courier new&amp;#34; , monospace ; font-size: 14px&quot;&gt;16384 / 8 =&amp;nbsp;&lt;/span&gt;&lt;font color=&quot;#b5cea8&quot; face=&quot;consolas, courier new, monospace&quot;&gt;&lt;span style=&quot;font-size: 14px&quot;&gt;2,048 bytes ==&amp;gt; Fits in one block&lt;br&gt;&lt;br&gt;num_blocks_needed(Block_size, num_bytes_needed) --&amp;gt; How many blocks will be needed for the desired data&lt;br&gt;&lt;/span&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+                    <mxGeometry x="10" y="1350" width="820" height="120" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>

@@ -17,6 +17,9 @@
 #define MAX_INUM 1024
 #define MAX_DNUM 16384
 
+//User Macros
+#define TFS_REG 0
+#define TFS_DIR 1
 
 struct superblock {
 	uint32_t	magic_num;			/* magic number */
