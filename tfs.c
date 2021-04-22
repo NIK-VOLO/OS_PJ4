@@ -272,10 +272,10 @@ int tfs_mkfs() {
 		return -1;
 	}
 	root_inode->ino = 0;
-	root_inode->valid = 0; //TODO: Temporarily set to 0
+	root_inode->valid = I_VALID; //TODO: Double check this
 	root_inode->size = 0; //TODO: Temporarily set to 0
-	root_inode->type = TFS_DIR;
-	root_inode->link = 0; //TODO: Temporarily set to 0
+	root_inode->type = TFS_DIR; //TODO: Double check this
+	root_inode->link = 2; //TODO: Double check this
 	//root_inode->direct_ptr; //TODO: Temporarily not set
 	//root_inode->indirect_ptr; //TODO: Temporarily not set
 	rstat = malloc(sizeof(struct stat));
@@ -449,7 +449,8 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 		stbuf->st_nlink  = 2;
 		time(&stbuf->st_mtime);
 
-	return 0;
+	//TODO: Temporarily set to -1
+	return -1;
 }
 
 static int tfs_opendir(const char *path, struct fuse_file_info *fi) {

@@ -21,6 +21,9 @@
 #define TFS_REG 0
 #define TFS_DIR 1
 
+#define I_VALID 1
+#define I_INVALID 0
+
 struct superblock {
 	uint32_t	magic_num;			/* magic number */
 	uint16_t	max_inum;			/* maximum inode number */
