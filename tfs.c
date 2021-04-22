@@ -38,6 +38,8 @@ bitmap_t data_map;
 //Root inode
 struct inode* root_inode;
 
+pthread_mutex_t lock;
+
 
 //Helper Function declarations:
 
@@ -155,7 +157,86 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
 
-	return 0;
+	int i;
+
+	// Find current file/dir name and remaining path from current path
+	char* name = strtok(path, "/");
+	char* new_path = path;
+
+	// Find the path within the subdirectory
+	if (name != NULL) {
+		for (i = 0; i < strlen(path); i++) {
+			if (path[i] == "/") {
+				new_path = &path[i];
+				break;
+			}
+		}
+	}
+
+	// Find inode block index and offset
+	int block_index = sb->i_start_blk;
+	int block_offset = ino;
+	while (block_offset > BLOCK_SIZE) {
+		block_offset -= BLOCK_SIZE;
+		block_index += 1;
+	}
+
+	// Read the data block
+	struct inode* cur_block = (struct inode*)malloc(BLOCK_SIZE);
+	int read_ret = bio_read(block_index, cur_block);
+	if (read_ret < 0) {
+		printf("Error in get_node_by_path(): Unable to read inode block\n");
+		return -1;
+	}
+
+	struct inode* mynode = &cur_block[block_offset];
+
+	if (name == NULL) {
+		// Done with recursion
+		// Select the desired inode
+		*inode = *mynode;
+		return 0;
+
+	} else {
+		// Need to go into data blocks :)
+		// Find the data block for this subdir
+		int data_ptr[16] = mynode->direct_ptr;
+
+		// Find the block and offset for the data
+		int blockno = sb->d_start_blk;
+		int blockno_offset = data_ptr[0];
+		while(blockno_offset >= BLOCK_SIZE) blockno_offset -= BLOCK_SIZE;
+
+		// Read this data block
+		struct dirent *cur_block = (struct dirent*)malloc(BLOCK_SIZE);
+		int read_ret3 = bio_read(blockno, cur_block);
+		if (read_ret3 < 0) {
+			printf("Error in get_node_by_path(): read_ret3 < 0\n");
+			return -1;
+		}
+		
+		// Get the ino of the next inode to find
+		int new_ino = -1;
+		struct dirent* cur_dirent;
+		i = 0;
+		while (i < BLOCK_SIZE / sizeof(struct dirent)){
+			cur_dirent = &cur_block[i];
+			if (strcmp(cur_dirent->name, name)) {
+				// Found the dir entry corresponding to the next inode
+				new_ino = cur_dirent->ino;
+			}
+			i += 1;
+		}
+
+		if (new_ino == -1) {
+			printf("Error in get_node_by_path(): %s not found from %s\n", name, path);
+			return -1;
+		}
+
+		// Recurse
+		return get_node_by_path(new_path, new_ino, inode);
+
+	}
 }
 
 /* 
@@ -443,6 +524,8 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 
 	// Step 1: call get_node_by_path() to get inode from path
 
+
+
 	// Step 2: fill attribute of file into stbuf from inode
 
 		stbuf->st_mode   = S_IFDIR | 0755;
@@ -450,7 +533,7 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 		time(&stbuf->st_mtime);
 
 	//TODO: Temporarily set to -1
-	return -1;
+	return 0;
 }
 
 static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
