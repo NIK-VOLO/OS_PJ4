@@ -177,6 +177,7 @@ int tfs_mkfs() {
 	int wretstat;
 	struct stat* rstat;
 	time_t seconds; 
+	struct dirent dirents[2];
 	
 
 	// Call dev_init() to initialize (Create) Diskfile
@@ -200,12 +201,14 @@ int tfs_mkfs() {
 
 	//Allocate space in memory for superblock
 	sb = malloc(sizeof(struct superblock));
-	printf("Size of superblock: %ld\n",sizeof(sb));
+	printf("Size of superblock: %ld\n",sizeof(struct superblock));
 	if(sb == NULL){
 		// Malloc Failed somehow
 		return -1;
 	}
 
+
+	printf("tfs_mkfs(): Check 3 . . . \n");	
 	//Calculate the number of blocks needed to store the superblock
 	num_sup_blocks = num_blocks_needed(BLOCK_SIZE, sizeof(struct superblock));
 
@@ -227,6 +230,18 @@ int tfs_mkfs() {
 	//Calc the number of blocks needed for all of the inodes
 	num_inode_blocks = num_blocks_needed(BLOCK_SIZE, max_inode_bytes);
 
+	//PRINT DEBUG INFO:
+	printf("******************************************************\n");
+	printf("Number of blocks for super block: %d\n", num_sup_blocks);
+	printf("Size of inode bitmap: %d bytes\n", imap_size);
+	printf("Size of data bitmap: %d bytes\n", dmap_size);
+	printf("Blocks needed for inode bitmap: %d\n", num_imap_blocks);
+	printf("Blocks needed for data bitmap: %d\n", num_dmap_blocks);
+	printf("Size of inode struct: %ld bytes\n", sizeof(struct inode));
+	printf("Max bytes needed for all inodes: %d\n", max_inode_bytes);
+	printf("Number of blocks needed to store all inodes: %d\n", num_inode_blocks);
+	printf("******************************************************\n");
+
 	sb->magic_num = MAGIC_NUM;
 	sb->max_inum = MAX_INUM;
 	sb->max_dnum = MAX_DNUM;
@@ -244,7 +259,7 @@ int tfs_mkfs() {
 	block_count += num_inode_blocks;
 	sb->d_start_blk = block_count;
 	
-
+	printf("tfs_mkfs(): Check 4 . . . \n");
 	// initialize inode bitmap
 	inode_map = malloc(imap_size);
 	if(inode_map == NULL){
@@ -259,12 +274,14 @@ int tfs_mkfs() {
 		// Malloc Failed somehow
 		return -1;
 	}
-	memset(inode_map, 0, dmap_size);
+	memset(data_map, 0, dmap_size);
 
 	//update bitmap information for root directory
 	set_bitmap(inode_map, 0);
+	//set_bitmap(data_map, 0); //TODO: Double check this
+	
 
-
+	printf("tfs_mkfs(): Check 5 . . . \n");
 	//TODO: update inode for root directory
 	root_inode = malloc(sizeof(struct inode));
 	if(root_inode == NULL){
@@ -273,18 +290,48 @@ int tfs_mkfs() {
 	}
 	root_inode->ino = 0;
 	root_inode->valid = I_VALID; //TODO: Double check this
-	root_inode->size = 0; //TODO: Temporarily set to 0
 	root_inode->type = TFS_DIR; //TODO: Double check this
-	root_inode->link = 2; //TODO: Double check this
-	//root_inode->direct_ptr; //TODO: Temporarily not set
+	root_inode->link = 2;
+	root_inode->direct_ptr[0] = sb->d_start_blk; //TODO: Temporarily not set
+	root_inode->direct_ptr[1] = sb->d_start_blk;
+
+	//Create dirents for "." and ".." (Both point to root dir)
+	struct dirent* d1 = malloc(sizeof(struct dirent));
+	struct dirent* d2 = malloc(sizeof(struct dirent));
+
+	//Dirent 1
+	d1->ino = 0;
+	d1->valid = I_VALID;
+	strcpy(d1->name, ".");
+	d1->len = 1;
+
+	//Dirent 2
+	d2->ino = 0;
+	d2->valid = I_VALID;
+	strcpy(d2->name, "..");
+	d2->len = 1;
+
+	//Add both dirents to dirent array
+	dirents[0] = *d1;
+	dirents[1] = *d2;
+	free(d1);
+	free(d2);
+
+	printf("Size of 1 dirent: %ld\n", sizeof(struct dirent));
+	printf("Size of dirents array: %ld\n", sizeof(dirents));
+
+
 	//root_inode->indirect_ptr; //TODO: Temporarily not set
+	root_inode->size = 2 * sizeof(struct dirent); //TODO: double check this (Size based on the number of dirents that it points to)
 	rstat = malloc(sizeof(struct stat));
 	memset (rstat, 0, sizeof(struct stat));
 	time(&seconds);
 	rstat->st_atime = seconds;
 	rstat->st_mtime = seconds;
 	root_inode->vstat = *rstat;
+	free(rstat);
 
+	printf("tfs_mkfs(): Check 6 . . . \n");
 	//Write to disk (Super Block, Bitmaps, Root inode)
 	wretstat = bio_write(0, sb);
 	if(wretstat < 0){
@@ -301,6 +348,12 @@ int tfs_mkfs() {
 
 	//TODO: Write root inode to inode block (-- writei() --)
 	wretstat = bio_write((int)sb->i_start_blk, root_inode);
+	if(wretstat < 0){
+		return -1;
+	}
+
+	//Write dirent array to first data block
+	wretstat = bio_write((int)sb->d_start_blk, dirents);
 	if(wretstat < 0){
 		return -1;
 	}
@@ -340,7 +393,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 		if(sb == NULL){
 			//Allocate 
 			sb = malloc(sizeof(struct superblock));
-			printf("Size of superblock: %ld\n",sizeof(sb));
+			printf("Size of superblock: %ld\n",sizeof(struct superblock));
 			if(sb == NULL){
 				// Malloc Failed somehow
 				perror("tfs_init failed:");
@@ -379,6 +432,17 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 			}
 		}
 
+		//Allocate space for root inode
+		printf("tfs_init(): Check 4.5 . . . \n");
+		if(root_inode == NULL){
+			root_inode = malloc(sizeof(struct inode));
+			if(root_inode == NULL){
+				// Malloc Failed somehow
+				perror("tfs_init failed:");
+				exit(EXIT_FAILURE);
+			}
+		}
+
 		//Load superblock from disk
 		printf("tfs_init(): Check 5 . . . \n");
 		rretstat = bio_read(0, sb);
@@ -386,6 +450,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 			perror("tfs_init disk read failure:");
 			exit(EXIT_FAILURE);
 		}
+		printf("Loaded Super Block. . .\n|-- Start of data block region: %d\n", sb->d_start_blk);
 
 		//Load inode bitmap from disk
 		printf("tfs_init(): Check 6 . . . \n");
@@ -394,6 +459,7 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 			perror("tfs_init disk read failure:");
 			exit(EXIT_FAILURE);
 		}
+		printf("Loaded inode bitmap. . .\n|-- Index at 0: %d\n", get_bitmap(inode_map,0));
 
 		//Load data bitmap from disk
 		printf("tfs_init(): Check 7 . . . \n");
@@ -402,9 +468,17 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 			perror("tfs_init disk read failure:");
 			exit(EXIT_FAILURE);
 		}
+		printf("Loaded data bitmap. . .\n|-- Index at 0: %d\n", get_bitmap(data_map,0));
 
-
-		//TODO: Read the root inode
+		//***TODO: FIX HOW READING FROM DISK WORKS (buffer of size BLOCK_SIZE first, then extract data)
+		printf("tfs_init(): Check 8 . . . \n");
+		rretstat = bio_read((int)sb->i_start_blk, root_inode);
+		if(rretstat < 0){
+			perror("tfs_init disk read failure:");
+			exit(EXIT_FAILURE);
+		}
+		
+		
 	}
 
 	printf("tfs_init(): * DONE *\n");
@@ -423,7 +497,7 @@ static void tfs_destroy(void *userdata) {
 	printf("tfs_destroy(): Check 3 . . . \n");
 	free(data_map);
 	printf("tfs_destroy(): Check 4 . . . \n");
-	free(&root_inode->vstat);
+	//free(&root_inode->vstat);
 	printf("tfs_destroy(): Check 5 . . . \n");
 	free(root_inode);
 	printf("tfs_destroy(): Check 6.1 . . . \n");
@@ -450,7 +524,7 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 		time(&stbuf->st_mtime);
 
 	//TODO: Temporarily set to -1
-	return -1;
+	return 0;
 }
 
 static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
