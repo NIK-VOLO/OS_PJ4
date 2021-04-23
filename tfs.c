@@ -237,6 +237,9 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 		return get_node_by_path(new_path, new_ino, inode);
 
 	}
+
+	//TEMPORARY
+	//return -1;
 }
 
 /* 
@@ -259,6 +262,10 @@ int tfs_mkfs() {
 	struct stat* rstat;
 	time_t seconds; 
 	struct dirent dirents[2];
+	char buf[BLOCK_SIZE];
+
+	//Clear the buffer
+	memset(buf, 0, BLOCK_SIZE);
 	
 
 	// Call dev_init() to initialize (Create) Diskfile
@@ -414,27 +421,44 @@ int tfs_mkfs() {
 
 	printf("tfs_mkfs(): Check 6 . . . \n");
 	//Write to disk (Super Block, Bitmaps, Root inode)
-	wretstat = bio_write(0, sb);
+	//Copy data to buffer
+	memcpy (buf, sb, sizeof(struct superblock));
+	//Write buffer to disk
+	wretstat = bio_write(0, buf);
 	if(wretstat < 0){
 		return -1;
 	}
-	wretstat = bio_write((int)sb->i_bitmap_blk, inode_map);
+
+	//Buffer Operations
+	memset(buf, 0, BLOCK_SIZE);
+	printf("Size of bitmap: %d\n", imap_size);
+	memcpy (buf, inode_map, imap_size);
+	wretstat = bio_write((int)sb->i_bitmap_blk, buf);
 	if(wretstat < 0){
 		return -1;
 	}
+
+	//Buffer Operations
+	memset(buf, 0, BLOCK_SIZE);
+	memcpy (buf, data_map, dmap_size);
 	wretstat = bio_write((int)sb->d_bitmap_blk, data_map);
 	if(wretstat < 0){
 		return -1;
 	}
 
-	//TODO: Write root inode to inode block (-- writei() --)
-	wretstat = bio_write((int)sb->i_start_blk, root_inode);
+	//Buffer Operations
+	memset(buf, 0, BLOCK_SIZE);
+	memcpy (buf, root_inode, sizeof(struct inode));
+	wretstat = bio_write((int)sb->i_start_blk, buf);
 	if(wretstat < 0){
 		return -1;
 	}
 
 	//Write dirent array to first data block
-	wretstat = bio_write((int)sb->d_start_blk, dirents);
+	//Buffer Operations
+	memset(buf, 0, BLOCK_SIZE);
+	memcpy (buf, dirents, sizeof(dirents));
+	wretstat = bio_write((int)sb->d_start_blk, buf);
 	if(wretstat < 0){
 		return -1;
 	}
@@ -453,6 +477,10 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 	int rretstat;
 	int imap_size;
 	int dmap_size;
+	char buf[BLOCK_SIZE];
+
+	//Clear the buffer
+	memset(buf, 0, BLOCK_SIZE);
 
 	// Step 1a: If disk file is not found, call mkfs
 	// Partition bitmap block, inode block, data block
@@ -526,7 +554,10 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 
 		//Load superblock from disk
 		printf("tfs_init(): Check 5 . . . \n");
-		rretstat = bio_read(0, sb);
+		//Read into buffer
+		rretstat = bio_read(0, buf);
+		//Copy the desired memory
+		memcpy(sb, buf, sizeof(struct superblock));
 		if(rretstat < 0){
 			perror("tfs_init disk read failure:");
 			exit(EXIT_FAILURE);
@@ -535,7 +566,12 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 
 		//Load inode bitmap from disk
 		printf("tfs_init(): Check 6 . . . \n");
-		rretstat = bio_read((int)sb->i_bitmap_blk, inode_map);
+		//clear buffer
+		memset(buf, 0, BLOCK_SIZE);
+		//read into buffer
+		rretstat = bio_read((int)sb->i_bitmap_blk, buf);
+		//Copy the desired memory
+		memcpy(inode_map, buf, imap_size);
 		if(rretstat < 0){
 			perror("tfs_init disk read failure:");
 			exit(EXIT_FAILURE);
@@ -544,7 +580,12 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 
 		//Load data bitmap from disk
 		printf("tfs_init(): Check 7 . . . \n");
-		rretstat = bio_read((int)sb->d_bitmap_blk, data_map);
+		//clear buffer
+		memset(buf, 0, BLOCK_SIZE);
+		//read into buffer
+		rretstat = bio_read((int)sb->d_bitmap_blk, buf);
+		//Copy the desired memory
+		memcpy(data_map, buf, dmap_size);
 		if(rretstat < 0){
 			perror("tfs_init disk read failure:");
 			exit(EXIT_FAILURE);
@@ -553,12 +594,16 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 
 		//***TODO: FIX HOW READING FROM DISK WORKS (buffer of size BLOCK_SIZE first, then extract data)
 		printf("tfs_init(): Check 8 . . . \n");
-		rretstat = bio_read((int)sb->i_start_blk, root_inode);
+		//clear buffer
+		memset(buf, 0, BLOCK_SIZE);
+		rretstat = bio_read((int)sb->i_start_blk, buf);
+		//Copy the desired memory
+		memcpy(root_inode, buf, sizeof(struct inode));
 		if(rretstat < 0){
 			perror("tfs_init disk read failure:");
 			exit(EXIT_FAILURE);
 		}
-		
+		printf("Loaded Root Inode. . .\n|-- Number of links in root: %d\n", root_inode->link);
 		
 	}
 
