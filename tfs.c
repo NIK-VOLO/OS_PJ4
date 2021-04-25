@@ -74,7 +74,7 @@ int get_avail_ino() {
 
 	// Step 2: Traverse inode bitmap to find an available slot
 	int i, bit, next_slot;
-	slot = -1;
+	next_slot = -1;
 	for (i=0; i<MAX_INUM; i++) {
 		bit = get_bitmap(inode_map, i);
 		if (bit == 0) {
@@ -171,7 +171,7 @@ int readi(uint16_t ino, struct inode *inode) {
 	// Step 3: Read the block from disk and then copy into inode structure
 	char buffer[BLOCK_SIZE];
 	bio_read(block_index, buffer);
-	memcpy(inode, buffer[inner_offset * sizeof(struct inode)], sizeof(struct inode));
+	memcpy(inode, &buffer[inner_offset * sizeof(struct inode)], sizeof(struct inode));
 
 	return 0;
 }
@@ -192,7 +192,7 @@ int writei(uint16_t ino, struct inode *inode) {
 	// Step 3: Read the block from disk and then copy into inode structure
 	char buffer[BLOCK_SIZE];
 	bio_read(block_index, buffer);
-	memcpy(buffer[inner_offset * sizeof(struct inode)], inode, sizeof(struct inode));
+	memcpy(&buffer[inner_offset * sizeof(struct inode)], inode, sizeof(struct inode));
 
 	return 0;
 }
@@ -206,11 +206,12 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 	//TODO: Find out why we're given name_len
 
 	// Step 1: Call readi() to get the inode using ino (inode number of current directory)
-	struct inode* mynode = malloc(sizoef(struct inode));
+	struct inode* mynode = malloc(sizeof(struct inode));
 	readi(ino, mynode);
 
 	// Step 2: Get data block of current directory from inode
-	int dirent_index[16] = mynode->direct_ptr;
+	int dirent_index[16];
+	memcpy(dirent_index, mynode->direct_ptr, 16 * sizeof(int));
 	char buffer[BLOCK_SIZE];
 
 	int i, j;
@@ -234,7 +235,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 			int strcmp_ret = strcmp(fname, my_dirent->name);
 			if (strcmp_ret == 0) {
 				// Name matches, copy to dirent structure
-				memcpy(dirent, my_dirent, sizeof(dirent));
+				memcpy(dirent, my_dirent, sizeof(struct dirent));
 				free(my_dirent);
 				free(mynode);
 				return 0;
@@ -247,7 +248,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 
 	free(mynode);
 
-	print("dir_find(): Unable to find name in directory\n");
+	printf("dir_find(): Unable to find name in directory\n");
 	return 1;
 }
 
@@ -287,86 +288,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
 
-	int i;
-
-	// Find current file/dir name and remaining path from current path
-	char* name = strtok(path, "/");
-	char* new_path = path;
-
-	// Find the path within the subdirectory
-	if (name != NULL) {
-		for (i = 0; i < strlen(path); i++) {
-			if (path[i] == "/") {
-				new_path = &path[i];
-				break;
-			}
-		}
-	}
-
-	// Find inode block index and offset
-	int block_index = sb->i_start_blk;
-	int block_offset = ino;
-	while (block_offset > BLOCK_SIZE) {
-		block_offset -= BLOCK_SIZE;
-		block_index += 1;
-	}
-
-	// Read the data block
-	struct inode* cur_block = (struct inode*)malloc(BLOCK_SIZE);
-	int read_ret = bio_read(block_index, cur_block);
-	if (read_ret < 0) {
-		printf("Error in get_node_by_path(): Unable to read inode block\n");
-		return -1;
-	}
-
-	struct inode* mynode = &cur_block[block_offset];
-
-	if (name == NULL) {
-		// Done with recursion
-		// Select the desired inode
-		*inode = *mynode;
-		return 0;
-
-	} else {
-		// Need to go into data blocks :)
-		// Find the data block for this subdir
-		int data_ptr[16] = mynode->direct_ptr;
-
-		// Find the block and offset for the data
-		int blockno = sb->d_start_blk;
-		int blockno_offset = data_ptr[0];
-		while(blockno_offset >= BLOCK_SIZE) blockno_offset -= BLOCK_SIZE;
-
-		// Read this data block
-		struct dirent *cur_block = (struct dirent*)malloc(BLOCK_SIZE);
-		int read_ret3 = bio_read(blockno, cur_block);
-		if (read_ret3 < 0) {
-			printf("Error in get_node_by_path(): read_ret3 < 0\n");
-			return -1;
-		}
-		
-		// Get the ino of the next inode to find
-		int new_ino = -1;
-		struct dirent* cur_dirent;
-		i = 0;
-		while (i < BLOCK_SIZE / sizeof(struct dirent)){
-			cur_dirent = &cur_block[i];
-			if (strcmp(cur_dirent->name, name)) {
-				// Found the dir entry corresponding to the next inode
-				new_ino = cur_dirent->ino;
-			}
-			i += 1;
-		}
-
-		if (new_ino == -1) {
-			printf("Error in get_node_by_path(): %s not found from %s\n", name, path);
-			return -1;
-		}
-
-		// Recurse
-		return get_node_by_path(new_path, new_ino, inode);
-
-	}
+	return 0;
 }
 
 /* 
