@@ -57,13 +57,49 @@ static int num_blocks_needed(int block_size, int num_bytes_needed){
  */
 int get_avail_ino() {
 
+	if (inode_map == NULL) {
+		printf("Error in get_avail_ino(): inode_map not allocated");
+		return -1;
+	}
+
 	// Step 1: Read inode bitmap from disk
-	
+	//TODO: Need to rewrite to cover multiple blocks
+	char buffer[BLOCK_SIZE];
+	int read_ret = bio_read(sb->i_bitmap_blk, buffer);
+	if (read_ret < 0) {
+		printf("Error in get_avail_ino(): could not read bitmap from disk\n");
+		return -1;
+	}
+	memcpy(inode_map, buffer, MAX_INUM/8);
+
 	// Step 2: Traverse inode bitmap to find an available slot
+	int i, bit, next_slot;
+	next_slot = -1;
+	for (i=0; i<MAX_INUM; i++) {
+		bit = get_bitmap(inode_map, i);
+		if (bit == 0) {
+			// Found an available slot
+			next_slot = i;
+			break;
+		}
+	}
+	if (next_slot == -1) {
+		printf("Error in get_avail_ino(): could not find open slot\n");
+		return -1;
+	}
+	
+	// Step 3: Update inode bitmap
+	set_bitmap(inode_map, next_slot);
 
-	// Step 3: Update inode bitmap and write to disk 
+	// Step 4: Copy back into buffer and write to disk
+	memcpy(buffer, inode_map, MAX_INUM/8);
+	int write_ret = bio_write(sb->i_bitmap_blk, buffer);
+	if (write_ret < 0) {
+		printf("Error in get_avail_ino(): could not write updated bitmap to disk\n");
+		return -1;
+	}
 
-	return 0;
+	return next_slot;
 }
 
 /* 
@@ -71,13 +107,49 @@ int get_avail_ino() {
  */
 int get_avail_blkno() {
 
-	// Step 1: Read data block bitmap from disk
+	if (data_map == NULL) {
+		printf("Error in get_avail_blkno(): data_map not allocated");
+		return -1;
+	}
+
+	// Step 1: Read data bitmap from disk
+	//TODO: Need to rewrite to cover multiple blocks
+	char buffer[BLOCK_SIZE];
+	int read_ret = bio_read(sb->d_bitmap_blk, buffer);
+	if (read_ret < 0) {
+		printf("Error in get_avail_blkno(): could not read bitmap from disk\n");
+		return -1;
+	}
+	memcpy(data_map, buffer, MAX_DNUM/8);
+
+	// Step 2: Traverse data bitmap to find an available slot
+	int i, bit, next_slot;
+	next_slot = -1;
+	for (i=0; i<MAX_INUM; i++) {
+		bit = get_bitmap(data_map, i);
+		if (bit == 0) {
+			// Found an available slot
+			next_slot = i;
+			break;
+		}
+	}
+	if (next_slot == -1) {
+		printf("Error in get_avail_blkno(): could not find open slot\n");
+		return -1;
+	}
 	
-	// Step 2: Traverse data block bitmap to find an available slot
+	// Step 3: Update inode bitmap
+	set_bitmap(data_map, next_slot);
 
-	// Step 3: Update data block bitmap and write to disk 
+	// Step 4: Copy back into buffer and write to disk
+	memcpy(buffer, data_map, MAX_INUM/8);
+	int write_ret = bio_write(sb->d_bitmap_blk, buffer);
+	if (write_ret < 0) {
+		printf("Error in get_avail_blkno(): could not write updated bitmap to disk\n");
+		return -1;
+	}
 
-	return 0;
+	return next_slot;
 }
 
 /* 
@@ -85,22 +157,42 @@ int get_avail_blkno() {
  */
 int readi(uint16_t ino, struct inode *inode) {
 
-  // Step 1: Get the inode's on-disk block number
+	if (inode == NULL) {
+		printf("Error in readi(): given a null pointer to inode\n");
+	}
 
-  // Step 2: Get offset of the inode in the inode on-disk block
+	// Step 1: Get the inode's on-disk block number
+	int block_offset = ino * sizeof(struct inode);
+	int block_index = sb->i_start_blk + block_offset;
 
-  // Step 3: Read the block from disk and then copy into inode structure
+	// Step 2: Get offset of the inode in the inode on-disk block
+	int inner_offset = (ino * sizeof(struct inode)) % BLOCK_SIZE;
+
+	// Step 3: Read the block from disk and then copy into inode structure
+	char buffer[BLOCK_SIZE];
+	bio_read(block_index, buffer);
+	memcpy(inode, &buffer[inner_offset * sizeof(struct inode)], sizeof(struct inode));
 
 	return 0;
 }
 
 int writei(uint16_t ino, struct inode *inode) {
 
-	// Step 1: Get the block number where this inode resides on disk
-	
-	// Step 2: Get the offset in the block where this inode resides on disk
+	if (inode == NULL) {
+		printf("Error in writei(): given a null pointer to inode\n");
+	}
 
-	// Step 3: Write inode to disk 
+	// Step 1: Get the inode's on-disk block number
+	int block_offset = ino * sizeof(struct inode);
+	int block_index = sb->i_start_blk + block_offset;
+
+	// Step 2: Get offset of the inode in the inode on-disk block
+	int inner_offset = (ino * sizeof(struct inode)) % BLOCK_SIZE;
+
+	// Step 3: Read the block from disk and then copy into inode structure
+	char buffer[BLOCK_SIZE];
+	bio_read(block_index, buffer);
+	memcpy(&buffer[inner_offset * sizeof(struct inode)], inode, sizeof(struct inode));
 
 	return 0;
 }
@@ -111,14 +203,53 @@ int writei(uint16_t ino, struct inode *inode) {
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
-  // Step 1: Call readi() to get the inode using ino (inode number of current directory)
+	//TODO: Find out why we're given name_len
 
-  // Step 2: Get data block of current directory from inode
+	// Step 1: Call readi() to get the inode using ino (inode number of current directory)
+	struct inode* mynode = malloc(sizeof(struct inode));
+	readi(ino, mynode);
 
-  // Step 3: Read directory's data block and check each directory entry.
-  //If the name matches, then copy directory entry to dirent structure
+	// Step 2: Get data block of current directory from inode
+	int dirent_index[16];
+	memcpy(dirent_index, mynode->direct_ptr, 16 * sizeof(int));
+	char buffer[BLOCK_SIZE];
 
-	return 0;
+	int i, j;
+	for (i=0; i<16; i++) {
+
+		// Step 3: Read directory's data block and check each directory entry.
+		int read_ret = bio_read(dirent_index[i], buffer);
+		if (read_ret < 0) {
+			printf("Error in dir_find(): Unable to read block of current directory\n");
+		}
+
+		// Locate a dirent within this block
+		for (j=0; j<BLOCK_SIZE; j+=sizeof(struct dirent)) {
+
+			//TODO: Figure out how dirents fit into a block 
+
+			struct dirent* my_dirent = malloc(sizeof(struct dirent));
+			memcpy(my_dirent, buffer + j, sizeof(struct dirent));
+
+			// If the name matches, then copy directory entry to dirent structure
+			int strcmp_ret = strcmp(fname, my_dirent->name);
+			if (strcmp_ret == 0) {
+				// Name matches, copy to dirent structure
+				memcpy(dirent, my_dirent, sizeof(struct dirent));
+				free(my_dirent);
+				free(mynode);
+				return 0;
+			}
+
+			free(my_dirent);
+			
+		}
+	}
+
+	free(mynode);
+
+	printf("dir_find(): Unable to find name in directory\n");
+	return 1;
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
