@@ -370,7 +370,44 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
 
-	return 0;
+	char name[208];
+	int len = strlen(path);
+	int valid = 0;
+	int i;
+	for (i=0; i<len; i++) {
+		if (path[i] == '\0') {
+			// End of name, this is a file
+			name[i] = '\0';
+			valid = 2;
+			break;
+		}
+		if (path[i] == '/') {
+			// End of name, this is a directory
+			name[i] = '\0';
+			valid = 1;
+			break;
+		}
+		name[i] = path[i];
+	}
+	if (valid == 0) {
+		printf("error in get_node_by_path(): invalid path name\n");
+		return -1;
+	}
+	if (valid == 1) {
+		// This is a directory
+		// Recursion needed
+		const char *new_path = &path[i];
+		int new_ino = -1; //TODO: get new_ino
+		return get_node_by_path(new_path, new_ino, inode);
+	}
+	if (valid == 2) {
+		// This is a file
+		//TODO: find file's inode
+		return 0;
+	}
+
+	// Shouldn't get here
+	return name[0];
 }
 
 /* 
