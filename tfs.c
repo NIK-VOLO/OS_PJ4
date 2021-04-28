@@ -63,7 +63,6 @@ int get_avail_ino() {
 	}
 
 	// Step 1: Read inode bitmap from disk
-	//TODO: Need to rewrite to cover multiple blocks
 	char buffer[BLOCK_SIZE];
 	int read_ret = bio_read(sb->i_bitmap_blk, buffer);
 	if (read_ret < 0) {
@@ -113,7 +112,6 @@ int get_avail_blkno() {
 	}
 
 	// Step 1: Read data bitmap from disk
-	//TODO: Need to rewrite to cover multiple blocks
 	char buffer[BLOCK_SIZE];
 	int read_ret = bio_read(sb->d_bitmap_blk, buffer);
 	if (read_ret < 0) {
@@ -226,9 +224,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 		}
 
 		// Locate a dirent within this block
-		for (j=0; j<BLOCK_SIZE; j+=sizeof(struct dirent)) {
-
-			//TODO: Figure out how dirents fit into a block 
+		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
 			struct dirent* my_dirent = malloc(sizeof(struct dirent));
 			memcpy(my_dirent, buffer + j, sizeof(struct dirent));
@@ -270,13 +266,11 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 		if (dirent_index[i] == 0) continue;
 		int read_ret = bio_read(dirent_index[i], buffer);
 		if (read_ret < 0) {
-			printf("Error in dir_add(): Unable to dir_inode data block\n");
+			printf("Error in dir_add(): Unable to read dir_inode data block\n");
 			return -1;
 		}
 
-		for (j=0; j<BLOCK_SIZE; j+=sizeof(struct dirent)) {
-
-			//TODO: Figure out how dirents fit into a block 
+		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
 			memcpy(my_dirent, buffer + j, sizeof(struct dirent));
 
@@ -297,8 +291,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 		if (dirent_index[i] == 0) break;
 	}
 	if (i >= 16) {
-		// No more space in directory
-		printf("dir_add(): no space to add file in current directory\n");
+		// No more room for direct pointers in directory
+		printf("dir_add(): no direct pointer space to add file in current directory\n");
 		free(my_dirent);
 		return 1;
 	}
@@ -307,15 +301,44 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	memcpy(&my_dirent->name, fname, name_len);
 	my_dirent->len = name_len;
 
-	//TODO: everything below
+	// Look through existing blocks for space
+	char buffer2[BLOCK_SIZE];
+	struct dirent* temp_dirent = malloc(sizeof(struct dirent));
+	for (i=0; i<16; i++) {
+		if (dirent_index[i] == 0) continue;
+
+		int read_ret = bio_read(dirent_index[i], buffer2);
+		if (read_ret < 0) {
+			printf("Error in dir_add(): Unable to read dir_inode data block (2)\n");
+			return -1;
+		}
+		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
+			// Look for zeroes
+			memcpy(temp_dirent, buffer2 + j, sizeof(struct dirent));
+			if (temp_dirent->valid == 0) {
+				// This is a good spot
+				memcpy(buffer2 + j, my_dirent, sizeof(struct dirent));
+				bio_write(dirent_index[i], buffer2);
+
+				// Update directory inode
+				memcpy(&dir_inode.direct_ptr, dirent_index, 16*sizeof(int));
+				//TODO: need to write?
+
+				return 0;
+			}
+
+		}
+	}
 
 	// Allocate a new data block for this directory if it does not exist
-	//TODO: what does this need?
+	dirent_index[i] = get_avail_blkno();
+	bio_read(dirent_index[i], buffer2);
+	memcpy(buffer2 + j, my_dirent, sizeof(struct dirent)); // Too lazy to check validity
+	bio_write(dirent_index[i], buffer2);
 
-	// Update directory inode
-	//TODO: how do you create a new direct pointer?
-
-	// Write directory entry
+	//update directory inode
+	memcpy(&dir_inode.direct_ptr, dirent_index, 16*sizeof(int));
+	//TODO: need to write?
 
 	return 0;
 }
@@ -341,7 +364,7 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 			return -1;
 		}
 
-		for (j=0; j<BLOCK_SIZE; j+=sizeof(struct dirent)) {
+		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 			memcpy(my_dirent, buffer + j, sizeof(struct dirent));
 
 			// Check if name is already used
@@ -349,6 +372,10 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 			if (strcmp_ret == 0) {
 				// Name matches, delete this
 				
+				//TODO: Check to see if directory has content
+
+				//TODO: Clear bitmap
+
 				memset(buffer + j, 0, sizeof(struct dirent));
 				bio_write(dirent_index[i], buffer);
 
@@ -373,18 +400,22 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	char name[208];
 	int len = strlen(path);
 	int valid = 0;
-	int i;
+	int i, j;
 	for (i=0; i<len; i++) {
 		if (path[i] == '\0') {
-			// End of name, this is a file
+			// End of path
 			name[i] = '\0';
 			valid = 2;
 			break;
 		}
 		if (path[i] == '/') {
-			// End of name, this is a directory
+			// Partway through path
 			name[i] = '\0';
 			valid = 1;
+			if (i == len-1) {
+				// Actually end of path
+				valid = 2;
+			}
 			break;
 		}
 		name[i] = path[i];
@@ -394,20 +425,49 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 		return -1;
 	}
 	if (valid == 1) {
-		// This is a directory
+		// This is a dirent
 		// Recursion needed
 		const char *new_path = &path[i];
-		int new_ino = -1; //TODO: get new_ino
-		return get_node_by_path(new_path, new_ino, inode);
+		int new_ino = -1;
+
+		char buffer[BLOCK_SIZE];
+		struct inode *mynode = malloc(sizeof(struct inode));
+		readi(ino, mynode);
+		for (i=0; i<16; i++) {
+			if (mynode->direct_ptr[i] == 0) continue;
+			int read_ret = bio_read(mynode->direct_ptr[i], buffer);
+			if (read_ret < 0) {
+				printf("error in get_node_by_path(): unnable to load direct pointer\n");
+				return -1;
+			}
+
+			// Locate dirent within block
+			for (j=0; i<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
+				struct dirent* my_dirent = malloc(sizeof(struct dirent));
+				memcpy(my_dirent, buffer + j, sizeof(struct dirent));
+
+				int strcmp_ret = strcmp(name, my_dirent->name);
+				if (strcmp_ret == 0) {
+					new_ino = my_dirent->ino;
+					return get_node_by_path(new_path, new_ino, inode);
+				}
+
+			}
+
+		}
+
+		// Couldn't find directory
+		printf("get_node_by_path(): %s not found\n", name);
+		return -2;
 	}
 	if (valid == 2) {
-		// This is a file
-		//TODO: find file's inode
+		// This is an inode	
+		readi(ino, inode);
 		return 0;
 	}
 
 	// Shouldn't get here
-	return name[0];
+	return -3;
 }
 
 /* 
@@ -769,13 +829,14 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 
 	// Step 1: call get_node_by_path() to get inode from path
 
-
+	struct inode* mynode = malloc(sizeof(struct inode));
+	get_node_by_path(path, 0, mynode);
 
 	// Step 2: fill attribute of file into stbuf from inode
 
-		stbuf->st_mode   = S_IFDIR | 0755;
-		stbuf->st_nlink  = 2;
-		time(&stbuf->st_mtime);
+	stbuf->st_mode   = S_IFDIR | 0755;
+	stbuf->st_nlink  = 2;
+	time(&stbuf->st_mtime);
 
 	//TODO: Temporarily set to -1
 	return 0;
@@ -785,7 +846,11 @@ static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
 
+	struct inode* mynode = malloc(sizeof(struct inode));
+	int ret = get_node_by_path(path, 0, mynode);
+
 	// Step 2: If not find, return -1
+	if (ret < 0) return -1;
 
     return 0;
 }
