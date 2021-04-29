@@ -891,7 +891,13 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 	stbuf->st_uid = getuid();
 	stbuf->st_gid = getgid();
 	stbuf->st_size = mynode->size;
-	stbuf->st_mode   = S_IFDIR | 0755;
+
+	//Check if the inode is for the root dir
+	if ( strcmp( path, "/" ) == 0 ){
+		stbuf->st_mode   = S_IFDIR | 0755;
+	}else{
+		stbuf->st_mode = S_IFREG | 0644;
+	}
 	stbuf->st_nlink  = mynode->link;
 	//time(&stbuf->st_mtime);
 	stbuf->st_mtime = mynode->vstat.st_mtime;
@@ -979,19 +985,77 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 
 static int tfs_mkdir(const char *path, mode_t mode) {
 
+	char* pc, *tc, *parent, *target;
+	struct inode* mynode, *new_node;
+	int new_ino;
+	size_t tar_len;
+	struct stat* rstat;
+	int ret;
+
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
+	printf("tfs_mkdir(): CHECK 1. . . \n");
+	pc = strdup(path);
+	tc = strdup(path);
+	parent = dirname(pc);
+	target = basename(tc);
+	printf("tfs_mkdir(): Parent path: %s -- Target (base) name: %s\n", parent, target);
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
+	printf("tfs_mkdir(): CHECK 2. . . \n");
+	mynode = malloc(sizeof(struct inode));
+	ret = get_node_by_path(parent, 0, mynode);
+
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_mkdir() failed");
+		free(mynode);
+		return -1;
+	} 
 
 	// Step 3: Call get_avail_ino() to get an available inode number
+	printf("tfs_mkdir(): CHECK 3. . . \n");
+	new_ino = get_avail_ino();
+	if(new_ino < 0){
+		perror("tfs_mkdir() failed");
+		free(mynode);
+		return -1;
+	}
 
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
+	printf("tfs_mkdir(): CHECK 4. . . \n");
+	tar_len = strlen(target);
+	dir_add(*mynode, new_ino, target, tar_len);
 
 	// Step 5: Update inode for target directory
+	printf("tfs_mkdir(): CHECK 5. . . \n");
+	new_node = malloc(sizeof(struct inode));
+	new_node->ino = new_ino;
+	new_node->valid = I_VALID;
+	new_node->size = 0; //TODO: Size of a new inode? (0 because the new dir doesn't contain any dirents?)
+	new_node->type = TFS_DIR;
+	new_node->link = 2;
+	//Create stat struct for new node's vstat
+	rstat = malloc(sizeof(struct stat));
+	memset (rstat, 0, sizeof(struct stat));
+	//Set time (access & modification) to now
+	rstat->st_atime = time(NULL); 
+	rstat->st_mtime = time(NULL);
+	new_node->vstat = *rstat;
+	free(rstat);
 
 	// Step 6: Call writei() to write inode to disk
-	
+	printf("tfs_mkdir(): CHECK 6. . . \n");
+	ret = writei(new_ino, new_node);
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_mkdir() failed");
+		free(mynode);
+		free(new_node);
+		return -1;
+	} 
 
+	free(mynode);
+	free(new_node);
+
+	printf("tfs_mkdir(): COMPLETE. . .\n");
 	return 0;
 }
 
