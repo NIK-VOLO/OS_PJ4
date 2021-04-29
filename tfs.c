@@ -609,11 +609,11 @@ int tfs_mkfs() {
 	root_inode->type = TFS_DIR; //TODO: Double check this
 	root_inode->link = 2;
 	root_inode->direct_ptr[0] = sb->d_start_blk; //TODO: Temporarily not set
-	root_inode->direct_ptr[1] = sb->d_start_blk;
+	//root_inode->direct_ptr[1] = sb->d_start_blk; //TODO: Check this (Root inode only needs to point to one data block)
 
 	//Set remaining pointers to -1 (not yet set)
-	int n = 2;
-	for(n = 2; n < 16; n++){
+	int n;
+	for(n = 1; n < 16; n++){
 		root_inode->direct_ptr[n] = -1;
 	}
 
@@ -923,6 +923,8 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 	int i, j;
 	struct dirent* my_dirent;
 	char mybuffer[BLOCK_SIZE];
+	int block_no;
+	//int dblock_start = sb->d_start_blk;
 
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode* mynode = malloc(sizeof(struct inode));
@@ -937,10 +939,15 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 	
 	for (i=0; i<16; i++) {
 
-		if (mynode->direct_ptr[i] == -1) continue;
+		block_no = mynode->direct_ptr[i];
+
+		//NOTE: Data blocks start at block number ~67
+		//TODO: Change to check if the pointer number is < sb->d_start_blk (67)
+		if (block_no == -1) continue;
+		printf("tfs_readdir(): Inode #%d Direct Pointer = %d\n", mynode->ino, mynode->direct_ptr[i]);
 
 		// Step 3: Read directory's data block and check each directory entry.
-		int read_ret = bio_read(mynode->direct_ptr[i], mybuffer);
+		int read_ret = bio_read(block_no, mybuffer);
 		if (read_ret < 0) {
 			printf("Error in dir_find(): Unable to read block of current directory\n");
 			//TODO: Handle this error
@@ -951,8 +958,12 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
 			my_dirent = malloc(sizeof(struct dirent));
-			printf("tfs_readdir(): Dirent Name: %s\n", my_dirent->name);
+
+			//Copy buffer mem into my_dirent
+			memcpy(my_dirent, mybuffer+j, sizeof(struct dirent));
+			
 			if(my_dirent->valid){
+				printf("tfs_readdir(): Dirent Name: %s\n", my_dirent->name);
 				filler(buffer, my_dirent->name, NULL, 0);
 			}
 			free(my_dirent);
