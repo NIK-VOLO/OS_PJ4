@@ -398,11 +398,12 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
-
+	printf("get_node_by_path(): PATH: %s\n",path);
 	char name[208];
 	int len = strlen(path);
 	int valid = 0;
 	int i, j;
+	printf("get_node_by_path(): CHECK 1. . . \n");
 	for (i=0; i<len; i++) {
 		if (path[i] == '\0') {
 			// End of path
@@ -418,18 +419,22 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 				// Actually end of path
 				valid = 2;
 			}
+			i++;
 			break;
 		}
 		name[i] = path[i];
 	}
+	printf("get_node_by_path(): %s\n", name);
 	if (valid == 0) {
 		printf("error in get_node_by_path(): invalid path name\n");
 		return -1;
 	}
+	printf("get_node_by_path(): CHECK 2. . . \n");
 	if (valid == 1) {
 		// This is a dirent
 		// Recursion needed
 		const char *new_path = &path[i];
+		printf("get_node_by_path(): New Path: %s\n", new_path);
 		int new_ino = -1;
 
 		char buffer[BLOCK_SIZE];
