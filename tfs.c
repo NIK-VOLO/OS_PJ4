@@ -157,6 +157,7 @@ int readi(uint16_t ino, struct inode *inode) {
 
 	if (inode == NULL) {
 		printf("Error in readi(): given a null pointer to inode\n");
+		return -1;
 	}
 
 	// Step 1: Get the inode's on-disk block number
@@ -171,6 +172,8 @@ int readi(uint16_t ino, struct inode *inode) {
 	bio_read(block_index, buffer);
 	memcpy(inode, &buffer[inner_offset * sizeof(struct inode)], sizeof(struct inode));
 
+	printf("readi(): Complete! ino = %d\n", ino);
+
 	return 0;
 }
 
@@ -178,6 +181,7 @@ int writei(uint16_t ino, struct inode *inode) {
 
 	if (inode == NULL) {
 		printf("Error in writei(): given a null pointer to inode\n");
+		return -1;
 	}
 
 	// Step 1: Get the inode's on-disk block number
@@ -189,9 +193,12 @@ int writei(uint16_t ino, struct inode *inode) {
 
 	// Step 3: Read the block from disk and then copy into inode structure
 	char buffer[BLOCK_SIZE];
+	printf("writei(): Check 1...\n");
 	bio_read(block_index, buffer);
-	memcpy(&buffer[inner_offset * sizeof(struct inode)], inode, sizeof(struct inode));
-
+	printf("writei(): Check 2...\n");
+	memcpy(&buffer[inner_offset], inode, sizeof(struct inode));
+	bio_write(block_index, buffer);
+	printf("writei(): Complete! ino = %d\n", ino);
 	return 0;
 }
 
@@ -256,6 +263,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	
 	// Step 2: Check if fname (directory name) is already used in other entries
 	
+	printf("dir_add(): Starting...\n");
+
 	int dirent_index[16];
 	memcpy(dirent_index, dir_inode.direct_ptr, 16 * sizeof(int));
 	char buffer[BLOCK_SIZE];
@@ -316,20 +325,28 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 			// Look for zeroes
 			memcpy(temp_dirent, buffer2 + j, sizeof(struct dirent));
 			if (temp_dirent->valid == 0) {
+
+				printf("dir_add(): Writing in existing block\n");
+
 				// This is a good spot
 				memcpy(buffer2 + j, my_dirent, sizeof(struct dirent));
 				bio_write(dirent_index[i], buffer2);
 
 				// Update directory inode
 				memcpy(&dir_inode.direct_ptr, dirent_index, 16*sizeof(int));
-				//TODO: Increase size attribute in inode
-				//TODO: need to write?
+				int new_size = dir_inode.size + sizeof(struct dirent);
+				dir_inode.size = new_size;
+				writei(dir_inode.ino, &dir_inode);
 
+				printf("dir_add(): Writing in new block complete!\n");
+				
 				return 0;
 			}
 
 		}
 	}
+
+	printf("dir_add(): Writing in new block\n");
 
 	// Allocate a new data block for this directory if it does not exist
 	dirent_index[i] = get_avail_blkno();
@@ -337,10 +354,13 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	memcpy(buffer2 + j, my_dirent, sizeof(struct dirent)); // Too lazy to check validity
 	bio_write(dirent_index[i], buffer2);
 
-	//update directory inode
+	// Update directory inode
 	memcpy(&dir_inode.direct_ptr, dirent_index, 16*sizeof(int));
-	//TODO: Increase size attribute in inode
-	//TODO: need to write?
+	int new_size = dir_inode.size + sizeof(struct dirent);
+	dir_inode.size = new_size;
+	writei(dir_inode.ino, &dir_inode);
+
+	printf("dir_add(): Writing in new block complete!\n");
 
 	return 0;
 }
