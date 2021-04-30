@@ -147,6 +147,8 @@ int get_avail_blkno() {
 		return -1;
 	}
 
+	printf("get_avail_blkno(): Returning %d\n", next_slot);
+
 	return next_slot;
 }
 
@@ -161,18 +163,21 @@ int readi(uint16_t ino, struct inode *inode) {
 	}
 
 	// Step 1: Get the inode's on-disk block number
-	int block_offset = ino * sizeof(struct inode);
-	int block_index = sb->i_start_blk + block_offset;
+	int total_offset = ino * sizeof(struct inode);
+	printf("readi(): i start block = %d, ino = %d\n", sb->i_start_blk, ino);
+	int block_index = sb->i_start_blk + (int)(total_offset / BLOCK_SIZE);
 
 	// Step 2: Get offset of the inode in the inode on-disk block
-	int inner_offset = (ino * sizeof(struct inode)) % BLOCK_SIZE;
+	int inner_offset = total_offset % BLOCK_SIZE;
 
 	// Step 3: Read the block from disk and then copy into inode structure
+	printf("readi(): About to read block at index %d to buffer\n", block_index);
+
 	char buffer[BLOCK_SIZE];
 	bio_read(block_index, buffer);
-	memcpy(inode, &buffer[inner_offset * sizeof(struct inode)], sizeof(struct inode));
+	memcpy(inode, buffer + inner_offset, sizeof(struct inode));
 
-	printf("readi(): Complete! ino = %d\n", ino);
+	printf("readi(): Complete! ino = %d, valid = %d\n", ino, inode->valid);
 
 	return 0;
 }
@@ -185,11 +190,11 @@ int writei(uint16_t ino, struct inode *inode) {
 	}
 
 	// Step 1: Get the inode's on-disk block number
-	int block_offset = ino * sizeof(struct inode);
-	int block_index = sb->i_start_blk + block_offset;
+	int total_offset = ino * sizeof(struct inode);
+	int block_index = sb->i_start_blk + (total_offset / BLOCK_SIZE);
 
 	// Step 2: Get offset of the inode in the inode on-disk block
-	int inner_offset = (ino * sizeof(struct inode)) % BLOCK_SIZE;
+	int inner_offset = total_offset % BLOCK_SIZE;
 
 	// Step 3: Read the block from disk and then copy into inode structure
 	char buffer[BLOCK_SIZE];
@@ -294,17 +299,6 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 		}
 	}
 
-	// Step 3: Add directory entry in dir_inode's data block and write to disk
-	for (i=0; i<16; i++) {
-		// Finding the next empty block
-		if (dirent_index[i] == -1) break;
-	}
-	if (i >= 16) {
-		// No more room for direct pointers in directory
-		printf("dir_add(): no direct pointer space to add file in current directory\n");
-		free(my_dirent);
-		return 1;
-	}
 	my_dirent->ino = f_ino;
 	my_dirent->valid = 1;
 	memcpy(&my_dirent->name, fname, name_len);
@@ -316,7 +310,10 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	for (i=0; i<16; i++) {
 		if (dirent_index[i] == -1) continue;
 
+		printf("dir_add(): Trying to read block index %d to buffer\n", dirent_index[i]);
+
 		int read_ret = bio_read(dirent_index[i], buffer2);
+		printf("dir_add(): Successfully read block index %d to buffer\n", dirent_index[i]);
 		if (read_ret < 0) {
 			printf("Error in dir_add(): Unable to read dir_inode data block (2)\n");
 			return -1;
@@ -344,6 +341,19 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 			}
 
 		}
+	}
+
+	// Step 3: Add directory entry in dir_inode's data block and write to disk
+	for (i=0; i<16; i++) {
+		// Finding the next empty block
+		printf("dir_add(): Searching for empty block... This one has %d\n", dirent_index[i]);
+		if (dirent_index[i] == -1) break;
+	}
+	if (i >= 16) {
+		// No more room for direct pointers in directory
+		printf("dir_add(): no direct pointer space to add file in current directory\n");
+		free(my_dirent);
+		return 1;
 	}
 
 	printf("dir_add(): Writing in new block\n");
@@ -416,6 +426,12 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
  */
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	
+	/*
+	valid = 0 for invalid path--return
+	valid = 1 for more path left--recursive call
+	valid = 2 for end of path--set inode and return
+	*/
+
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
 	printf("get_node_by_path(): PATH: %s\n",path);
@@ -424,6 +440,9 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	int valid = 0;
 	int i, j;
 	printf("get_node_by_path(): CHECK 1. . . \n");
+	if (path[0] == '/') {
+		path = &path[1];
+	}
 	for (i=0; i<len; i++) {
 		if (path[i] == '\0') {
 			// End of path
@@ -444,6 +463,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 		}
 		name[i] = path[i];
 	}
+	if (i == len) valid = 2;
 	printf("get_node_by_path(): %s\n", name);
 	if (valid == 0) {
 		printf("error in get_node_by_path(): invalid path name\n");
@@ -461,10 +481,11 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 		struct inode *mynode = malloc(sizeof(struct inode));
 		readi(ino, mynode);
 		for (i=0; i<16; i++) {
-			if (mynode->direct_ptr[i] == 0) continue;
+			printf("get_node_by_path(): i = %d, direct pointer = %d\n", i, mynode->direct_ptr[i]);
+			if (mynode->direct_ptr[i] < sb->d_start_blk) continue;
 			int read_ret = bio_read(mynode->direct_ptr[i], buffer);
 			if (read_ret < 0) {
-				printf("error in get_node_by_path(): unnable to load direct pointer\n");
+				printf("get_node_by_path(): unnable to load direct pointer\n");
 				return -1;
 			}
 
@@ -473,9 +494,12 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 				struct dirent* my_dirent = malloc(sizeof(struct dirent));
 				memcpy(my_dirent, buffer + j, sizeof(struct dirent));
 
+				printf("get_node_by_path(): Trying to match %s with %s in dirent %ld in block %d\n", name, my_dirent->name, j / sizeof(struct dirent), mynode->direct_ptr[i]);
 				int strcmp_ret = strcmp(name, my_dirent->name);
 				if (strcmp_ret == 0) {
 					new_ino = my_dirent->ino;
+					printf("get_node_by_path(): Found it boss! name is %s, new ino is %d\n", my_dirent->name, new_ino);
+					printf("get_node_by_path(): Recursing...\n");
 					return get_node_by_path(new_path, new_ino, inode);
 				}
 
@@ -488,8 +512,45 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 		return ENOENT;
 	}
 	if (valid == 2) {
-		// This is an inode	
-		readi(ino, inode);
+		// Read the inode
+		
+		int new_ino = -1;
+		char buffer[BLOCK_SIZE];
+		struct inode* mynode = malloc(sizeof(struct inode));
+		int cur_ptr;
+		readi(ino, mynode); 
+		for (i=0; i<16; i++) {
+			// Read the block corresponding to this direct pointer
+			cur_ptr = mynode->direct_ptr[i];
+			if (cur_ptr == -1) break;
+			bio_read(cur_ptr, buffer);
+
+			j = 0;
+			while (j < BLOCK_SIZE) {
+				// Search through the dirents
+				
+				struct dirent* my_dirent = malloc(sizeof(struct dirent));
+				memcpy(my_dirent, buffer + j, sizeof(struct dirent));
+
+				printf("get_node_by_path(): Trying to match %s with %s in dirent %ld in block %d\n", name, my_dirent->name, j / sizeof(struct dirent), mynode->direct_ptr[i]);
+				int ret = strcmp(name, my_dirent->name);
+				if (ret == 0) {
+					// Matched name, this has the new ino
+					new_ino = my_dirent->ino;
+					printf("get_node_by_path(): Found it boss! name is %s, new ino is %d\n", my_dirent->name, new_ino);
+					break;
+				}
+
+				j += sizeof(struct dirent);
+			}
+		}
+
+		if (new_ino == -1) {
+			printf("get_node_by_path(): Unable to find inode corresponding to %s\n", name);
+			return -1;
+		}
+
+		readi(new_ino, inode);
 		return 0;
 	}
 
@@ -658,7 +719,7 @@ int tfs_mkfs() {
 	d2->ino = 0;
 	d2->valid = I_VALID;
 	strcpy(d2->name, "..");
-	d2->len = 1;
+	d2->len = 2;
 
 	//Add both dirents to dirent array
 	dirents[0] = *d1;
@@ -920,7 +981,7 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 	stbuf->st_size = mynode->size;
 
 	//Check if the inode is for the root dir
-	if ( strcmp( path, "/" ) == 0 ){
+	if ( mynode->type == TFS_DIR ){
 		stbuf->st_mode   = S_IFDIR | 0755;
 	}else{
 		stbuf->st_mode = S_IFREG | 0644;
@@ -1069,6 +1130,33 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 	new_node->size = 0; //TODO: Size of a new inode? (0 because the new dir doesn't contain any dirents?)
 	new_node->type = TFS_DIR;
 	new_node->link = 2;
+
+	// Create dirents for . and ..
+	struct dirent* d1 = malloc(sizeof(struct dirent));
+	d1->ino = new_ino;
+	d1->valid = I_VALID;
+	strcpy(d1->name, ".");
+	d1->len = 1;
+	struct dirent* d2 = malloc(sizeof(struct dirent));
+	d2->ino = mynode->ino;
+	d2->valid = I_VALID;
+	strcpy(d2->name, "..");
+	d2->len = 2;
+	// Find an available block for these dirents
+	int next_blockno = get_avail_blkno();
+	// Put the dirents onto disk
+	char dir_buffer[BLOCK_SIZE];
+	memcpy(dir_buffer, d1, sizeof(struct dirent));
+	memcpy(dir_buffer + sizeof(struct dirent), d2, sizeof(struct dirent));
+	bio_write(next_blockno, dir_buffer);
+	printf("tfs_mkdir(): Just made dirents with inos %d and %d in block %d\n", new_ino, mynode->ino, next_blockno);
+
+	new_node->direct_ptr[0] = next_blockno; // Corresponds to . and ..
+	for (int i = 1; i < 16; i++) {
+		new_node->direct_ptr[i] = -1;
+	}
+
+
 	//Create stat struct for new node's vstat
 	rstat = malloc(sizeof(struct stat));
 	memset (rstat, 0, sizeof(struct stat));
