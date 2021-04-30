@@ -322,6 +322,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 				// Update directory inode
 				memcpy(&dir_inode.direct_ptr, dirent_index, 16*sizeof(int));
+				//TODO: Increase size attribute in inode
 				//TODO: need to write?
 
 				return 0;
@@ -338,6 +339,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 	//update directory inode
 	memcpy(&dir_inode.direct_ptr, dirent_index, 16*sizeof(int));
+	//TODO: Increase size attribute in inode
 	//TODO: need to write?
 
 	return 0;
@@ -372,9 +374,9 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 			if (strcmp_ret == 0) {
 				// Name matches, delete this
 				
-				//TODO: Check to see if directory has content
+				//TODO: Check to see if directory has content (May not need in here, implemented in tfs_rmdir())
 
-				//TODO: Clear bitmap
+				//TODO: Clear bitmap (may not need in here)
 
 				memset(buffer + j, 0, sizeof(struct dirent));
 				bio_write(dirent_index[i], buffer);
@@ -1020,10 +1022,19 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 		return -1;
 	}
 
+	//TODO: Increase the size of the parent directory (I think this should be done in dir_add)
+
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
 	printf("tfs_mkdir(): CHECK 4. . . \n");
 	tar_len = strlen(target);
-	dir_add(*mynode, new_ino, target, tar_len);
+	ret = dir_add(*mynode, new_ino, target, tar_len);
+	if(ret < 0 || ret > 0){
+		printf("tfs_mkdir(): failed. . . \n");
+		free(mynode);
+		return -1;
+	}
+
+	//TODO: Increment the link count of the parent dir (Maybe in dir_add?)
 
 	// Step 5: Update inode for target directory
 	printf("tfs_mkdir(): CHECK 5. . . \n");
@@ -1061,18 +1072,88 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 
 static int tfs_rmdir(const char *path) {
 
+	char* pc, *tc, *parent, *target;
+	struct inode* mynode;
+	int ret;
+	int i;
+	int dsb = sb->d_start_blk;
+	
+
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
+	printf("tfs_rmdir(): CHECK 1. . . \n");
+	pc = strdup(path);
+	tc = strdup(path);
+	parent = dirname(pc);
+	target = basename(tc);
+	printf("tfs_rmdir(): Parent path: %s -- Target (base) name: %s\n", parent, target);
 
 	// Step 2: Call get_node_by_path() to get inode of target directory
+	printf("tfs_rmdir(): CHECK 2. . . \n");
+	mynode = malloc(sizeof(struct inode));
+	ret = get_node_by_path(path, 0, mynode);
+
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_rmdir() failed");
+		free(mynode);
+		return -1;
+	} 
+
+	//Check the directory's size. If it's not empty, do not continue
+	if(mynode->size > 0){
+		errno = ENOTEMPTY;
+		perror("tfs_rmdir() failed");
+		return ENOTEMPTY;
+	}
 
 	// Step 3: Clear data block bitmap of target directory
+	printf("tfs_rmdir(): CHECK 3. . . \n");
+	//Search through the inode's direct ptrs and free the corresponding bits
+	printf("tfs_rmdir(): Unsetting data bits -------\n");
+	int bit;
+	int abs_block;
+	for(i = 0; i < 16; i++){
+		//Get the absolute block position
+		abs_block = mynode->direct_ptr[i];
+		// Get the bit position by subtracting the data block start number
+		bit = abs_block - dsb;
+		if(bit > 0) {
+			unset_bitmap(data_map, bit);
+			printf("%d\t", bit);
+		}
+	}
+	printf("\ntfs_rmdir(): DONE UNSETTING -----------: \n");
 
 	// Step 4: Clear inode bitmap and its data block
+	printf("tfs_rmdir(): CHECK 4. . . \n");
+
+	// Use node's ino to clear bit
+	unset_bitmap(inode_map, mynode->ino);
+
+	// Save needed information from the inode being deleted
+	int tmp_ino = mynode->ino;
+	// Use writei() to clear the inode data from the block
+	memset(mynode, 0, sizeof(struct inode));
+	writei(tmp_ino, mynode);
+	free(mynode);
 
 	// Step 5: Call get_node_by_path() to get inode of parent directory
+	printf("tfs_rmdir(): CHECK 5. . . \n");
+
+	// Reuse the mynode variable for the parent inode
+	mynode = malloc(sizeof(struct inode));
+	ret = get_node_by_path(parent, 0, mynode);
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_rmdir() failed");
+		free(mynode);
+		return -1;
+	} 
 
 	// Step 6: Call dir_remove() to remove directory entry of target directory in its parent directory
+	printf("tfs_rmdir(): CHECK 6. . . \n");
+	dir_remove(*mynode, target, strlen(target));
 
+	free(mynode);
+	printf("tfs_rmdir(): * COMPLETE * \n");
 	return 0;
 }
 
@@ -1082,48 +1163,207 @@ static int tfs_releasedir(const char *path, struct fuse_file_info *fi) {
     return 0;
 }
 
+
 static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 
+	char* pc, *tc, *parent, *target;
+	struct inode* mynode, *new_node;;
+	int new_ino;
+	size_t tar_len;
+	struct stat* rstat;
+	int ret;
+
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
+	printf("tfs_create(): CHECK 1. . . \n");
+	pc = strdup(path);
+	tc = strdup(path);
+	parent = dirname(pc);
+	target = basename(tc);
+	printf("tfs_create(): Parent path: %s -- Target (base) name: %s\n", parent, target);
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
+	printf("tfs_create(): CHECK 2. . . \n");
+	mynode = malloc(sizeof(struct inode));
+	ret = get_node_by_path(path, 0, mynode);
+
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_create() failed");
+		free(mynode);
+		return -1;
+	} 
 
 	// Step 3: Call get_avail_ino() to get an available inode number
-
+	printf("tfs_create(): CHECK 3. . . \n");
+	new_ino = get_avail_ino();
+	if(new_ino < 0){
+		perror("tfs_create() failed");
+		free(mynode);
+		return -1;
+	}
 	// Step 4: Call dir_add() to add directory entry of target file to parent directory
+	printf("tfs_create(): CHECK 4. . . \n");
+	tar_len = strlen(target);
+	ret = dir_add(*mynode, new_ino, target, tar_len);
+	//If the function returns anything but 0, then it's unable to create file
+	if(ret < 0 || ret > 0){
+		printf("tfs_create(): failed. . . \n");
+		free(mynode);
+		return -1;
+	}
+
+	//TODO: Increment the link count of the parent dir (Maybe in dir_add?)
 
 	// Step 5: Update inode for target file
+	printf("tfs_create(): CHECK 5. . . \n");
+	new_node = malloc(sizeof(struct inode));
+	new_node->ino = new_ino;
+	new_node->valid = I_VALID;
+	new_node->size = 0; //TODO: Size of a new inode? (0 because the new file doesn't contain any data?)
+	new_node->type = TFS_REG;
+	new_node->link = 1;
+	//Create stat struct for new node's vstat
+	rstat = malloc(sizeof(struct stat));
+	memset (rstat, 0, sizeof(struct stat));
+	//Set time (access & modification) to now
+	rstat->st_atime = time(NULL); 
+	rstat->st_mtime = time(NULL);
+	new_node->vstat = *rstat;
+	free(rstat);
 
 	// Step 6: Call writei() to write inode to disk
+	printf("tfs_create(): CHECK 6. . . \n");
+	ret = writei(new_ino, new_node);
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_create() failed");
+		free(mynode);
+		free(new_node);
+		return -1;
+	} 
 
+	free(mynode);
+	free(new_node);
+
+	printf("tfs_create(): * COMPLETE * \n");
 	return 0;
 }
 
 static int tfs_open(const char *path, struct fuse_file_info *fi) {
 
-	// Step 1: Call get_node_by_path() to get inode from path
+	struct inode* mynode;
+	int ret;
 
+	// Step 1: Call get_node_by_path() to get inode from path
+	printf("tfs_open(): CHECK 1. . . \n");
+	mynode = malloc(sizeof(struct inode));
+	ret = get_node_by_path(path, 0, mynode);
+
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_open() failed");
+		free(mynode);
+		return -1;
+	} 
 	// Step 2: If not find, return -1
 
+	//TODO: Is this all we have to do?
+
+	free(mynode);
 	return 0;
 }
 
 static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
 
+	char mybuffer[BLOCK_SIZE * 16];
+	int block_ptr;
+	int read_ret;
+	int i;
+	int blocks_read = 0;
+	int dsb = sb->d_start_blk;
+	int mybuff_offset;
+
+	if(offset > size){
+		printf("tfs_read() Error: Offset is larger than file size");
+		return -1;
+	}
+
+	// Read all valid data blocks into mybuffer
+	// Then copy the data from mybuffer starting at 'offset' for 'size' bytes
+	// Doing this should handle unaligned reads, as the entirety of blocks are being read and should appear whole after writing to "buffer"
+
 	// Step 1: You could call get_node_by_path() to get inode from path
+	struct inode* mynode = malloc(sizeof(struct inode));
+	int ret = get_node_by_path(path, 0, mynode);
+
+	if (ret < 0 || ret == ENOENT){
+		free(mynode);
+		return -1;
+	} 
 
 	// Step 2: Based on size and offset, read its data blocks from disk
+	//Loop through data block pointers
+	for(i = 0; i < 16; i++){
+		block_ptr = mynode->direct_ptr[i];
 
+		//ignore invalid pointers (less than the datablock region)
+		if (block_ptr < dsb) continue;
+
+		// Indicates at which point in mybuffer you would like to load block data into
+		mybuff_offset = BLOCK_SIZE * blocks_read;
+		blocks_read++;
+
+		//Read whole block into mybuff starting at mybuff_offset
+		read_ret = bio_read(block_ptr, mybuffer + mybuff_offset);
+
+		if (read_ret < 0) {
+			printf("Error in tfs_read(): Unable to read data block\n");
+			//No bytes read
+			return 0;
+		}
+
+	}
 	// Step 3: copy the correct amount of data from offset to buffer
-
+	memcpy(buffer, mybuffer+offset, size);
 	// Note: this function should return the amount of bytes you copied to buffer
-	return 0;
+	return size;
 }
 
 static int tfs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
+
+	int num_needed;
+	int starting_block;
+	int rel_offset;
+
+	// Handle unaligned write:
+	// Create local buffer (new_buffer) that will store the data in a block-aligned manner 
+
+	//calc number of blocks needed for buffer data
+	num_needed = num_blocks_needed(BLOCK_SIZE, size);
+	char new_buffer[BLOCK_SIZE * num_needed];
+
+	memcpy(new_buffer, buffer, size);
+
+	//Calculate which block to start in based on offset
+	//Check if the offset is larger than BLOCK_SIZE. If size is greater than BLOCK_SIZE then the value will be >= 1 (0 indexed)
+	starting_block = size / BLOCK_SIZE;
+	//Calc the offset within the specific block
+	if( starting_block == 0){
+		rel_offset = offset;
+	}else if(starting_block > 0){
+		rel_offset = offset - BLOCK_SIZE;
+	}
+
 	// Step 1: You could call get_node_by_path() to get inode from path
+	struct inode* mynode = malloc(sizeof(struct inode));
+	int ret = get_node_by_path(path, 0, mynode);
+
+	if (ret < 0 || ret == ENOENT){
+		free(mynode);
+		return -1;
+	} 
 
 	// Step 2: Based on size and offset, read its data blocks from disk
+	// Read blocks starting from 'starting_block' to num_needed+1 into a temp buffer
+	// Copy new_buffer data into temp buffer starting at rel_offset
+	// Write back to disk block by block 
 
 	// Step 3: Write the correct amount of data from offset to disk
 
