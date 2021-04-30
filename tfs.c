@@ -887,10 +887,10 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 	struct inode* mynode = malloc(sizeof(struct inode));
 	int ret = get_node_by_path(path, 0, mynode);
 	if(ret == ENOENT){
-		return ENOENT;
+		return -ENOENT;
 	}
 	if(ret < 0){
-		return -1;
+		return -ENOENT;
 	}
 
 
