@@ -1303,7 +1303,7 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 	for(i = 0; i < 16; i++){
 		block_ptr = mynode->direct_ptr[i];
 
-		//ignore invalid pointers (less than the datablock region)
+		//ignore invalid pointers (less than the datablock region) //TODO: Should we make -1 count as a stopping point? The direct pointers should be contiguous I think.
 		if (block_ptr < dsb) continue;
 
 		// Indicates at which point in mybuffer you would like to load block data into
@@ -1331,25 +1331,40 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	int num_needed;
 	int starting_block;
 	int rel_offset;
+	int i;
+	int dsb = sb->d_start_blk;
+	int block_ptr;
+	int blocks_read;
+
 
 	// Handle unaligned write:
-	// Create local buffer (new_buffer) that will store the data in a block-aligned manner 
+	
 
-	//calc number of blocks needed for buffer data
-	num_needed = num_blocks_needed(BLOCK_SIZE, size);
-	char new_buffer[BLOCK_SIZE * num_needed];
-
-	memcpy(new_buffer, buffer, size);
 
 	//Calculate which block to start in based on offset
-	//Check if the offset is larger than BLOCK_SIZE. If size is greater than BLOCK_SIZE then the value will be >= 1 (0 indexed)
-	starting_block = size / BLOCK_SIZE;
-	//Calc the offset within the specific block
-	if( starting_block == 0){
-		rel_offset = offset;
-	}else if(starting_block > 0){
-		rel_offset = offset - BLOCK_SIZE;
+	//Check if the offset is larger than BLOCK_SIZE. If offset is greater than BLOCK_SIZE then the value will be >= 1 (0 indexed)
+	starting_block = offset / BLOCK_SIZE;
+	printf("tfs_write(): direct_ptr start index: %d\n", starting_block);
+
+	if(starting_block > 16){
+		printf("tfs_write() Error: Offset exceeds the max file size");
+		return 0;
 	}
+
+	//Calc the offset within the specific block
+	rel_offset = offset - (BLOCK_SIZE * starting_block);
+	printf("tfs_write(): Relative block offset: %d\n", rel_offset);
+
+	// calc number of blocks needed to read in order to transfer data
+	// May need an extra block because offset causes overflow into another block
+	num_needed = num_blocks_needed(BLOCK_SIZE, size+rel_offset);
+	printf("tfs_write(): Number of blocks needed to change: %d\n", num_needed);
+
+	// Create local buffer (new_buffer) that will store the data in a block-aligned manner 
+	// Now we can read/write from this block-by-block
+	char new_buffer[BLOCK_SIZE * num_needed]; //TODO: This may be redundant
+	memcpy(new_buffer, buffer, size);
+
 
 	// Step 1: You could call get_node_by_path() to get inode from path
 	struct inode* mynode = malloc(sizeof(struct inode));
@@ -1361,31 +1376,140 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	} 
 
 	// Step 2: Based on size and offset, read its data blocks from disk
-	// Read blocks starting from 'starting_block' to num_needed+1 into a temp buffer
-	// Copy new_buffer data into temp buffer starting at rel_offset
-	// Write back to disk block by block 
+	// Read blocks starting from 'starting_block' to num_needed into a super-buffer (db_buff) where the data is contiguous
+	char db_buff[BLOCK_SIZE * num_needed];
+	int tblock;
+	int db_buff_offset;
+	printf("tfs_write(): READING DATA BLOCKS. . . \n");
+	for(i = 0; i < num_needed; i++){
+		tblock = starting_block + i;
+		block_ptr = mynode->direct_ptr[tblock];
+		printf("tfs_write(): Ptr#: %d -- Block#: %d\n", tblock, block_ptr);
+
+		if(block_ptr < dsb) continue; //TODO: Change to a stopping point?
+
+		// Indicates at which point in db_buff you would like to load block data into
+		db_buff_offset = BLOCK_SIZE * blocks_read;
+		blocks_read++;
+
+		//Read whole block into db_buff starting at db_buff_offset
+		ret = bio_read(block_ptr, db_buff + db_buff_offset);
+
+		if (ret < 0) {
+			printf("Error in tfs_write(): Unable to read data block\n");
+			//No bytes read
+			free(mynode);
+			return 0;
+		}
+		
+	}
+	printf("tfs_write(): * DONE * READING DATA BLOCKS. . . \n");
+
+	/* Now the disk blocks are loaded into db_buff, we transfer the data from our write buffer into 
+	db_buff starting at rel_offset
+	
+	The db_buff should have enough room to directly write the write-buffer data into it
+	*/
+	memcpy(db_buff+rel_offset, buffer, size);
 
 	// Step 3: Write the correct amount of data from offset to disk
+	printf("tfs_write(): WRITING MODIFIED DATA BLOCKS. . . \n");
+	for(i = 0; i < num_needed; i++){
+		tblock = starting_block + i;
+		block_ptr = mynode->direct_ptr[tblock];
+		printf("tfs_write(): Ptr#: %d -- Block#: %d\n", tblock, block_ptr);
+		// Write to file blocks using the respective positions in db_buff
+		ret = bio_write(block_ptr, db_buff+(BLOCK_SIZE * i)); //TODO: Double check this
+	}
+	printf("tfs_write(): * DONE * WRITING MODIFIED DATA BLOCKS. . . \n");
 
 	// Step 4: Update the inode info and write it to disk
+	mynode->vstat.st_atime = time(NULL);
+	mynode->vstat.st_mtime = time(NULL);
 
+	//TODO: Update size in inode 
+
+	ret = writei(mynode->ino, mynode);
+	if (ret < 0 || ret == ENOENT){
+		free(mynode);
+		return -1;
+	} 
 	// Note: this function should return the amount of bytes you write to disk
+	free(mynode);
 	return size;
 }
 
 static int tfs_unlink(const char *path) {
 
+	char* pc, *tc, *parent, *target;
+	struct inode* mynode;
+	int ret;
+	int i;
+	int dsb = sb->d_start_blk;
+	int dm_bit;
+	int block_ptr;
+
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
+	printf("tfs_unlink(): CHECK 1. . . \n");
+	pc = strdup(path);
+	tc = strdup(path);
+	parent = dirname(pc);
+	target = basename(tc);
+	printf("tfs_unlink(): Parent path: %s -- Target (base) name: %s\n", parent, target);
 
 	// Step 2: Call get_node_by_path() to get inode of target file
+	printf("tfs_unlink(): CHECK 2. . . \n");
+	mynode = malloc(sizeof(struct inode));
+	ret = get_node_by_path(path, 0, mynode);
+
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_unlink() failed");
+		free(mynode);
+		return -1;
+	} 
 
 	// Step 3: Clear data block bitmap of target file
+	printf("tfs_unlink(): CHECK 3. . . \n");
+	// Loop through 'target' inode block ptrs, find what data blocks it's using and free the bits in data_map
+	for(i = 0; i < 16; i++){
+		// Absolute data block number
+		block_ptr = mynode->direct_ptr[i];
+		if(block_ptr < dsb) continue; //TODO: Double check this
+
+		// Index of bit in the data_map
+		dm_bit = block_ptr - dsb;
+
+		unset_bitmap(data_map, dm_bit);
+	}
 
 	// Step 4: Clear inode bitmap and its data block
+	printf("tfs_unlink(): CHECK 4. . . \n");
+	unset_bitmap(inode_map, mynode->ino);
+	// Save needed information from the inode being deleted
+	int tmp_ino = mynode->ino;
+	// Use writei() to clear the inode data from the block
+	memset(mynode, 0, sizeof(struct inode));
+	writei(tmp_ino, mynode);
+	free(mynode);
 
 	// Step 5: Call get_node_by_path() to get inode of parent directory
+	printf("tfs_unlink(): CHECK 5. . . \n");
+
+	// Reuse the mynode variable for the parent inode
+	mynode = malloc(sizeof(struct inode));
+	ret = get_node_by_path(parent, 0, mynode);
+	if (ret < 0 || ret == ENOENT){
+		perror("tfs_unlink() failed");
+		free(mynode);
+		return -1;
+	} 
 
 	// Step 6: Call dir_remove() to remove directory entry of target file in its parent directory
+	printf("tfs_unlink(): CHECK 6. . . \n");
+	dir_remove(*mynode, target, strlen(target));
+
+	free(mynode);
+	printf("tfs_unlink(): * COMPLETE * \n");
 
 	return 0;
 }
