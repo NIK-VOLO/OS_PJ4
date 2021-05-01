@@ -70,7 +70,9 @@ int get_avail_ino() {
 
 	// Step 1: Read inode bitmap from disk
 	char buffer[BLOCK_SIZE];
+	pthread_mutex_lock(lock);
 	int read_ret = bio_read(sb->i_bitmap_blk, buffer);
+	pthread_mutex_unlock(lock);
 	if (read_ret < 0) {
 		printf("Error in get_avail_ino(): could not read bitmap from disk\n");
 		return -1;
@@ -98,7 +100,9 @@ int get_avail_ino() {
 
 	// Step 4: Copy back into buffer and write to disk
 	memcpy(buffer, inode_map, MAX_INUM/8);
+	pthread_mutex_lock(lock);
 	int write_ret = bio_write(sb->i_bitmap_blk, buffer);
+	pthread_mutex_unlock(lock);
 	if (write_ret < 0) {
 		printf("Error in get_avail_ino(): could not write updated bitmap to disk\n");
 		return -1;
@@ -119,7 +123,9 @@ int get_avail_blkno() {
 
 	// Step 1: Read data bitmap from disk
 	char buffer[BLOCK_SIZE];
+	pthread_mutex_lock(lock);
 	int read_ret = bio_read(sb->d_bitmap_blk, buffer);
+	pthread_mutex_unlock(lock);
 	if (read_ret < 0) {
 		printf("Error in get_avail_blkno(): could not read bitmap from disk\n");
 		return -1;
@@ -147,7 +153,9 @@ int get_avail_blkno() {
 
 	// Step 4: Copy back into buffer and write to disk
 	memcpy(buffer, data_map, MAX_INUM/8);
+	pthread_mutex_lock(lock);
 	int write_ret = bio_write(sb->d_bitmap_blk, buffer);
+	pthread_mutex_unlock(lock);
 	if (write_ret < 0) {
 		printf("Error in get_avail_blkno(): could not write updated bitmap to disk\n");
 		return -1;
@@ -180,7 +188,9 @@ int readi(uint16_t ino, struct inode *inode) {
 	printf("readi(): About to read block at index %d to buffer\n", block_index);
 
 	char buffer[BLOCK_SIZE];
+	pthread_mutex_lock(lock);
 	bio_read(block_index, buffer);
+	pthread_mutex_unlock(lock);
 	memcpy(inode, buffer + inner_offset, sizeof(struct inode));
 
 	printf("readi(): Complete! ino = %d, valid = %d\n", ino, inode->valid);
@@ -205,10 +215,12 @@ int writei(uint16_t ino, struct inode *inode) {
 	// Step 3: Read the block from disk and then copy into inode structure
 	char buffer[BLOCK_SIZE];
 	printf("writei(): Check 1...\n");
+	pthread_mutex_lock(lock);
 	bio_read(block_index, buffer);
 	printf("writei(): Check 2...\n");
 	memcpy(&buffer[inner_offset], inode, sizeof(struct inode));
 	bio_write(block_index, buffer);
+	pthread_mutex_unlock(lock);
 	printf("writei(): Complete! ino = %d\n", ino);
 	return 0;
 }
@@ -236,7 +248,9 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 		if (dirent_index[i] == -1) continue;
 
 		// Step 3: Read directory's data block and check each directory entry.
+		pthread_mutex_lock(lock);
 		int read_ret = bio_read(dirent_index[i], buffer);
+		pthread_mutex_unlock(lock);
 		if (read_ret < 0) {
 			printf("Error in dir_find(): Unable to read block of current directory\n"); //TODO: Handle this error
 		}
@@ -289,8 +303,10 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	int i, j;
 	struct dirent* my_dirent = malloc(sizeof(struct dirent));
 	for (i=0; i<16; i++) {
-		if (dirent_index[i] == -1) continue;
+		if (dirent_index[i] == -1) https://www.youtube.com/watch?v=F4Y4VKmUpLI&list=PL8FcXyvXIOl85VpIwC1hswB3kzjBwPAHDcontinue;
+		pthread_mutex_lock(lock);
 		int read_ret = bio_read(dirent_index[i], buffer);
+		pthread_mutex_unlock(lock);
 		if (read_ret < 0) {
 			printf("Error in dir_add(): Unable to read dir_inode data block\n");
 			return -1;
@@ -337,7 +353,9 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 		printf("dir_add(): Trying to read absolute block %d to buffer\n", dirent_index[i]);
 
+		pthread_mutex_lock(lock);
 		int read_ret = bio_read(dirent_index[i], buffer2);
+		pthread_mutex_unlock(lock);
 		printf("dir_add(): Successfully read absolute block %d to buffer\n", dirent_index[i]);
 		if (read_ret < 0) {
 			printf("Error in dir_add(): Unable to read dir_inode data block (2)\n");
@@ -358,7 +376,9 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 				// This is a good spot
 				memcpy(buffer2 + j, my_dirent, sizeof(struct dirent));
+				pthread_mutex_lock(lock);
 				bio_write(dirent_index[i], buffer2);
+				pthread_mutex_unlock(lock);
 
 				printf("dir_add(): Wrote dirent:\n\t-- ino # %d\n\t-- Name: %s\n", my_dirent->ino, my_dirent->name);
 
@@ -395,9 +415,11 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 	// Allocate a new data block for this directory if it does not exist
 	dirent_index[i] = sb->d_start_blk + get_avail_blkno();
+	pthread_mutex_lock(lock);
 	bio_read(dirent_index[i], buffer2);
 	memcpy(buffer2 + j, my_dirent, sizeof(struct dirent)); // Too lazy to check validity
 	bio_write(dirent_index[i], buffer2);
+	pthread_mutex_unlock(lock);
 
 	// Update directory inode
 	memcpy(&dir_inode.direct_ptr, dirent_index, 16*sizeof(int));
@@ -433,7 +455,9 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 		block_no = dir_inode.direct_ptr[i];
 		if (block_no == -1) continue;
 
+		pthread_mutex_lock(lock);
 		int read_ret = bio_read(dirent_index[i], buffer);
+		pthread_mutex_unlock(lock);
 		if (read_ret < 0) {
 			printf("Error in dir_remove(): Unable to dir_inode data block\n");
 			return -1;
@@ -458,7 +482,9 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 				//TODO: Clear bitmap (may not need in here)
 
 				memset(buffer + j, 0, sizeof(struct dirent));
+				pthread_mutex_lock(lock);
 				bio_write(dirent_index[i], buffer);
+				pthread_mutex_unlock(lock);
 
 				//Invalidate direct ptr to block
 				//dir_inode.direct_ptr[i] = -1;
@@ -552,7 +578,10 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 		for (i=0; i<16; i++) {
 			printf("get_node_by_path(): i = %d, direct pointer = %d\n", i, mynode->direct_ptr[i]);
 			if (mynode->direct_ptr[i] < sb->d_start_blk) continue;
+
+			pthread_mutex_lock(lock);
 			int read_ret = bio_read(mynode->direct_ptr[i], buffer);
+			pthread_mutex_unlock(lock);
 			if (read_ret < 0) {
 				printf("get_node_by_path(): unnable to load direct pointer\n");
 				return -1;
@@ -602,7 +631,9 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 			cur_ptr = mynode->direct_ptr[i];
 			//printf("\tCurrent ptr: %d\n", cur_ptr);
 			if (cur_ptr == -1) break;
+			pthread_mutex_lock(lock);
 			bio_read(cur_ptr, buffer);
+			pthread_mutex_unlock(lock);
 
 			j = 0;
 			while (j < BLOCK_SIZE) {
@@ -827,7 +858,9 @@ int tfs_mkfs() {
 	//Copy data to buffer
 	memcpy (buf, sb, sizeof(struct superblock));
 	//Write buffer to disk
+	pthread_mutex_lock(lock);
 	wretstat = bio_write(0, buf);
+	pthread_mutex_lock(unlock);
 	if(wretstat < 0){
 		return -1;
 	}
@@ -836,7 +869,9 @@ int tfs_mkfs() {
 	memset(buf, 0, BLOCK_SIZE);
 	printf("Size of bitmap: %d\n", imap_size);
 	memcpy (buf, inode_map, imap_size);
+	pthread_mutex_lock(lock);
 	wretstat = bio_write((int)sb->i_bitmap_blk, buf);
+	pthread_mutex_unlock(lock);
 	if(wretstat < 0){
 		return -1;
 	}
@@ -844,7 +879,9 @@ int tfs_mkfs() {
 	//Buffer Operations
 	memset(buf, 0, BLOCK_SIZE);
 	memcpy (buf, data_map, dmap_size);
+	pthread_mutex_lock(lock);
 	wretstat = bio_write((int)sb->d_bitmap_blk, data_map);
+	pthread_mutex_unlock(lock);
 	if(wretstat < 0){
 		return -1;
 	}
@@ -852,7 +889,9 @@ int tfs_mkfs() {
 	//Buffer Operations
 	memset(buf, 0, BLOCK_SIZE);
 	memcpy (buf, root_inode, sizeof(struct inode));
+	pthread_mutex_lock(lock);
 	wretstat = bio_write((int)sb->i_start_blk, buf);
+	pthread_mutex_unlock(lock);
 	if(wretstat < 0){
 		return -1;
 	}
@@ -861,7 +900,9 @@ int tfs_mkfs() {
 	//Buffer Operations
 	memset(buf, 0, BLOCK_SIZE);
 	memcpy (buf, dirents, sizeof(dirents));
+	pthread_mutex_lock(lock);
 	wretstat = bio_write((int)sb->d_start_blk, buf);
+	pthread_mutex_unlock(lock);
 	if(wretstat < 0){
 		return -1;
 	}
@@ -958,7 +999,9 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 		//Load superblock from disk
 		printf("tfs_init(): Check 5 . . . \n");
 		//Read into buffer
+		pthread_mutex_lock(lock);
 		rretstat = bio_read(0, buf);
+		pthread_mutex_unlock(lock);
 		//Copy the desired memory
 		memcpy(sb, buf, sizeof(struct superblock));
 		if(rretstat < 0){
@@ -972,7 +1015,9 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 		//clear buffer
 		memset(buf, 0, BLOCK_SIZE);
 		//read into buffer
+		pthread_mutex_lock(lock);
 		rretstat = bio_read((int)sb->i_bitmap_blk, buf);
+		pthread_mutex_lock(unlock);
 		//Copy the desired memory
 		memcpy(inode_map, buf, imap_size);
 		if(rretstat < 0){
@@ -986,7 +1031,9 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 		//clear buffer
 		memset(buf, 0, BLOCK_SIZE);
 		//read into buffer
+		pthread_mutex_lock(lock);
 		rretstat = bio_read((int)sb->d_bitmap_blk, buf);
+		pthread_mutex_lock(unlock);
 		//Copy the desired memory
 		memcpy(data_map, buf, dmap_size);
 		if(rretstat < 0){
@@ -999,7 +1046,9 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 		printf("tfs_init(): Check 8 . . . \n");
 		//clear buffer
 		memset(buf, 0, BLOCK_SIZE);
+		pthread_mutex_lock(lock);
 		rretstat = bio_read((int)sb->i_start_blk, buf);
+		pthread_mutex_unlock(lock);
 		//Copy the desired memory
 		memcpy(root_inode, buf, sizeof(struct inode));
 		if(rretstat < 0){
@@ -1123,7 +1172,9 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 		printf("tfs_readdir(): Inode #%d Direct Pointer = %d\n", mynode->ino, block_no);
 
 		// Step 3: Read directory's data block and check each directory entry.
+		pthread_mutex_lock(lock);
 		int read_ret = bio_read(block_no, mybuffer);
+		pthread_mutex_unlock(lock);
 		if (read_ret < 0) {
 			printf("Error in dir_find(): Unable to read block of current directory\n");
 			//TODO: Handle this error
@@ -1253,7 +1304,9 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 	char dir_buffer[BLOCK_SIZE];
 	memcpy(dir_buffer, d1, sizeof(struct dirent));
 	memcpy(dir_buffer + sizeof(struct dirent), d2, sizeof(struct dirent));
+	pthread_mutex_lock(lock);
 	bio_write(next_blockno, dir_buffer);
+	pthread_mutex_unlock(lock);
 	printf("tfs_mkdir(): Just made dirents '%s' and '%s' with inos %d and %d in block %d\n", d1->name, d2->name, new_ino, mynode->ino, next_blockno);
 
 	new_node->direct_ptr[0] = next_blockno; // Corresponds to . and ..
@@ -1357,12 +1410,14 @@ static int tfs_rmdir(const char *path) {
 	print_bitmap(inode_map);
 
 	//Write bitmaps to disk
+	pthread_mutex_lock(lock);
 	ret = bio_write(sb->i_bitmap_blk, inode_map);
 	if(ret < 0){
 		free(mynode);
 		return -1;
 	}
 	ret = bio_write(sb->d_bitmap_blk, data_map);
+	pthread_mutex_unlock(lock);
 	if(ret < 0){
 		free(mynode);
 		return -1;
@@ -1565,7 +1620,9 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 		blocks_read++;
 
 		//Read whole block into mybuff starting at mybuff_offset
+		pthread_mutex_lock(lock);
 		read_ret = bio_read(block_ptr, mybuffer + mybuff_offset);
+		pthread_mutex_unlock(lock);
 
 		if (read_ret < 0) {
 			printf("Error in tfs_read(): Unable to read data block\n");
@@ -1649,7 +1706,9 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 		blocks_read++;
 
 		//Read whole block into db_buff starting at db_buff_offset
+		pthread_mutex_lock(lock);
 		ret = bio_read(block_ptr, db_buff + db_buff_offset);
+		pthread_mutex_unlock(lock);
 
 		if (ret < 0) {
 			printf("Error in tfs_write(): Unable to read data block\n");
@@ -1676,7 +1735,9 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 		block_ptr = mynode->direct_ptr[tblock];
 		printf("tfs_write(): Ptr#: %d -- Block#: %d\n", tblock, block_ptr);
 		// Write to file blocks using the respective positions in db_buff
+		pthread_mutex_lock(lock);
 		ret = bio_write(block_ptr, db_buff+(BLOCK_SIZE * i)); //TODO: Double check this
+		pthread_mutex_unlock(lock);
 	}
 	printf("tfs_write(): * DONE * WRITING MODIFIED DATA BLOCKS. . . \n");
 
@@ -1759,12 +1820,14 @@ static int tfs_unlink(const char *path) {
 	print_bitmap(inode_map);
 
 	//Write bitmaps to disk
+	pthread_mutex_lock(lock);
 	ret = bio_write(sb->i_bitmap_blk, inode_map);
 	if(ret < 0){
 		free(mynode);
 		return -1;
 	}
 	ret = bio_write(sb->d_bitmap_blk, data_map);
+	pthread_mutex_unlock(lock);
 	if(ret < 0){
 		free(mynode);
 		return -1;
