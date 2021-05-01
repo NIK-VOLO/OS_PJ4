@@ -245,6 +245,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
 			// Break loop if j exceeds the size of this directory //TODO: Double check this location
+			// TODO: Make it check more as well (maybe link count? )
 			if(j > mynode->size){
 				break;
 			}
@@ -295,6 +296,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 			return -1;
 		}
 
+		printf("dir_add(): Reading data block %d for existing dir name '%s'. . .\n", dirent_index[i], fname);
 		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
 			// Break loop if j exceeds the size of this directory
@@ -303,6 +305,13 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 			}
 
 			memcpy(my_dirent, buffer + j, sizeof(struct dirent));
+			printf("\t --> Dir Name: '%s' at block offset %d\n", my_dirent->name, j);
+
+			//TODO: DOUBLE CHECK THIS
+			if(strcmp(my_dirent->name, "")){
+				printf("\tFound an empty dirent! Stop here. . .");
+				break;
+			}
 
 			// Check if name is already used
 			int strcmp_ret = strcmp(fname, my_dirent->name);
@@ -326,10 +335,10 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	for (i=0; i<16; i++) {
 		if (dirent_index[i] == -1) continue;
 
-		printf("dir_add(): Trying to read block index %d to buffer\n", dirent_index[i]);
+		printf("dir_add(): Trying to read absolute block %d to buffer\n", dirent_index[i]);
 
 		int read_ret = bio_read(dirent_index[i], buffer2);
-		printf("dir_add(): Successfully read block index %d to buffer\n", dirent_index[i]);
+		printf("dir_add(): Successfully read absolute block %d to buffer\n", dirent_index[i]);
 		if (read_ret < 0) {
 			printf("Error in dir_add(): Unable to read dir_inode data block (2)\n");
 			return -1;
@@ -350,6 +359,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 				// This is a good spot
 				memcpy(buffer2 + j, my_dirent, sizeof(struct dirent));
 				bio_write(dirent_index[i], buffer2);
+
+				printf("dir_add(): Wrote dirent:\n\t-- ino # %d\n\t-- Name: %s\n", my_dirent->ino, my_dirent->name);
 
 				// Update directory inode
 				memcpy(&dir_inode.direct_ptr, dirent_index, 16*sizeof(int));
@@ -1088,6 +1099,7 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 	struct dirent* my_dirent;
 	char mybuffer[BLOCK_SIZE];
 	int block_no;
+	int link_count = 0;
 	//int dblock_start = sb->d_start_blk;
 
 	// Step 1: Call get_node_by_path() to get inode from path
@@ -1119,21 +1131,31 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 		}
 
 		// Locate a dirent within this block
+		printf("tfs_readdir(): Size of Dir: %d -- Link Count: %d\n", mynode->size, mynode->link);
 		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
+			
+
 			// Break loop if j exceeds the size of this directory
-			if(j > mynode->size){
+			//TODO: Change this so it compares the number of valid names to the link count
+			if(j > mynode->size && link_count >= mynode->link){
 				break;
 			}
-			printf("\ttfs_readdir(): Size of Dir: %d -- Bytes read: %d\n", mynode->size, j);
+			
 			
 			my_dirent = malloc(sizeof(struct dirent));
 
 			//Copy buffer mem into my_dirent
 			memcpy(my_dirent, mybuffer+j, sizeof(struct dirent));
-			
+
+			//Check if the name is valid. Increment link_count if the name isn't empty
+			// if(strcmp(my_dirent->name, "") != 0){
+			// 	link_count++;
+			// }
+			printf("\ttfs_readdir(): Size of Dir: %d -- Bytes read: %d -- Link# %d\n", mynode->size, j, link_count);
 			if(my_dirent->valid){
 				printf("tfs_readdir(): Dirent Name: %s -- Ino: %d\n", my_dirent->name, my_dirent->ino);
+				link_count++;
 				filler(buffer, my_dirent->name, NULL, 0);
 			}
 			free(my_dirent);
@@ -1194,6 +1216,7 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
 	printf("tfs_mkdir(): CHECK 4. . . \n");
 	tar_len = strlen(target);
+	printf("tfs_mkdir(): Passing to dir_add(): #%d - Name: %s - Len: %ld\n", new_ino, target, tar_len);
 	ret = dir_add(*mynode, new_ino, target, tar_len);
 	if(ret < 0 || ret > 0){
 		printf("tfs_mkdir(): failed. . . \n");
@@ -1231,7 +1254,7 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 	memcpy(dir_buffer, d1, sizeof(struct dirent));
 	memcpy(dir_buffer + sizeof(struct dirent), d2, sizeof(struct dirent));
 	bio_write(next_blockno, dir_buffer);
-	printf("tfs_mkdir(): Just made dirents with inos %d and %d in block %d\n", new_ino, mynode->ino, next_blockno);
+	printf("tfs_mkdir(): Just made dirents '%s' and '%s' with inos %d and %d in block %d\n", d1->name, d2->name, new_ino, mynode->ino, next_blockno);
 
 	new_node->direct_ptr[0] = next_blockno; // Corresponds to . and ..
 	for (int i = 1; i < 16; i++) {
@@ -1402,7 +1425,7 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
 	printf("tfs_create(): CHECK 2. . . \n");
 	mynode = malloc(sizeof(struct inode));
-	ret = get_node_by_path(path, 0, mynode);
+	ret = get_node_by_path(parent, 0, mynode);
 
 	if (ret < 0 || ret == ENOENT){
 		perror("tfs_create() failed");
@@ -1450,6 +1473,14 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 	rstat->st_mtime = time(NULL);
 	new_node->vstat = *rstat;
 	free(rstat);
+
+	//Create direct pointer for this file
+	new_node->direct_ptr[0] = sb->d_start_blk + get_avail_blkno();
+	//Set the rest of the pointers to default
+	int n;
+	for(n = 1; n < 16; n++){
+		new_node->direct_ptr[n] = -1;
+	}
 
 	// Step 6: Call writei() to write inode to disk
 	printf("tfs_create(): CHECK 6. . . \n");
@@ -1697,6 +1728,12 @@ static int tfs_unlink(const char *path) {
 		return -1;
 	} 
 
+	printf("tfs_unlink(): BITMAPS BEFORE:\n");
+	printf("\tData Map: ");
+	print_bitmap(data_map);
+	printf("\tInode Map: ");
+	print_bitmap(inode_map);
+
 	// Step 3: Clear data block bitmap of target file
 	printf("tfs_unlink(): CHECK 3. . . \n");
 	// Loop through 'target' inode block ptrs, find what data blocks it's using and free the bits in data_map
@@ -1714,6 +1751,25 @@ static int tfs_unlink(const char *path) {
 	// Step 4: Clear inode bitmap and its data block
 	printf("tfs_unlink(): CHECK 4. . . \n");
 	unset_bitmap(inode_map, mynode->ino);
+
+	printf("tfs_unlink(): BITMAPS AFTER:\n");
+	printf("\tData Map: ");
+	print_bitmap(data_map);
+	printf("\tInode Map: ");
+	print_bitmap(inode_map);
+
+	//Write bitmaps to disk
+	ret = bio_write(sb->i_bitmap_blk, inode_map);
+	if(ret < 0){
+		free(mynode);
+		return -1;
+	}
+	ret = bio_write(sb->d_bitmap_blk, data_map);
+	if(ret < 0){
+		free(mynode);
+		return -1;
+	}
+
 	// Save needed information from the inode being deleted
 	int tmp_ino = mynode->ino;
 	// Use writei() to clear the inode data from the block
