@@ -327,7 +327,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 			//TODO: DOUBLE CHECK THIS
 			if(strcmp(my_dirent->name, "")){
-				printf("\tFound an empty dirent! Stop here. . .");
+				printf("\tFound an empty dirent! Stop here. . .\n");
 				break;
 			}
 
@@ -611,11 +611,11 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 				struct dirent* my_dirent = malloc(sizeof(struct dirent));
 				memcpy(my_dirent, buffer + j, sizeof(struct dirent));
 
-				printf("get_node_by_path(): Trying to match %s with %s in dirent %ld in block %d\n", name, my_dirent->name, j / sizeof(struct dirent), mynode->direct_ptr[i]);
+				printf("get_node_by_path(): Trying to match '%s' with '%s' in dirent %ld in block %d\n", name, my_dirent->name, j / sizeof(struct dirent), mynode->direct_ptr[i]);
 				int strcmp_ret = strcmp(name, my_dirent->name);
 				if (strcmp_ret == 0) {
 					new_ino = my_dirent->ino;
-					printf("get_node_by_path(): Found it boss! name is %s, new ino is %d\n", my_dirent->name, new_ino);
+					printf("get_node_by_path(): Found it boss! name is '%s', new ino is %d\n", my_dirent->name, new_ino);
 					printf("get_node_by_path(): Recursing...\n");
 					free(mynode);
 					return get_node_by_path(new_path, new_ino, inode);
@@ -626,7 +626,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 		}
 
 		// Couldn't find directory
-		printf("get_node_by_path(): %s not found\n", name);
+		printf("get_node_by_path(): '%s' not found\n", name);
 		return ENOENT;
 	}
 	printf("get_node_by_path(): CHECK 3. . . \n");
@@ -649,6 +649,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 			pthread_mutex_unlock(&lock);
 
 			j = 0;
+			printf("get_node_by_path(): Size of Dir: %d -- Link Count: %d\n", mynode->size, mynode->link);
 			while (j < BLOCK_SIZE) {
 				// Search through the dirents
 
@@ -660,21 +661,26 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 				struct dirent* my_dirent = malloc(sizeof(struct dirent));
 				memcpy(my_dirent, buffer + j, sizeof(struct dirent));
 
-				printf("get_node_by_path(): Trying to match %s with %s in dirent %ld in block %d\n", name, my_dirent->name, j / sizeof(struct dirent), mynode->direct_ptr[i]);
+				printf("get_node_by_path(): Trying to match '%s' with '%s' in dirent %ld in block %d\n", name, my_dirent->name, j / sizeof(struct dirent), mynode->direct_ptr[i]);
+				printf("\tBytes Read: %d\n", j);
 				int ret = strcmp(name, my_dirent->name);
 				if (ret == 0) {
 					// Matched name, this has the new ino
 					new_ino = my_dirent->ino;
-					printf("get_node_by_path(): Found it boss! name is %s, new ino is %d\n", my_dirent->name, new_ino);
+					printf("get_node_by_path(): Found it boss! name is '%s', new ino is %d\n", my_dirent->name, new_ino);
+					break;
+				}else if(ret != 0 && j == mynode->size){
+					printf("\t* Reached end without finding dir '%s'\n", name);
 					break;
 				}
+				
 
 				j += sizeof(struct dirent);
 			}
 		}
 
 		if (new_ino == -1) {
-			printf("get_node_by_path(): Unable to find inode corresponding to %s\n", name);
+			printf("get_node_by_path(): Unable to find inode corresponding to '%s'\n", name);
 			free(mynode);
 			return -1;
 		}
@@ -1608,10 +1614,7 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 
 
 	printf("tfs_read(): Starting. . .\n\tRead Size: %ld\n\tOffset amount: %ld\n", size, offset);
-	if(offset > size){
-		printf("tfs_read() Error: Offset is larger than file size");
-		return -1;
-	}
+	
 
 	// Read all valid data blocks into mybuffer
 	// Then copy the data from mybuffer starting at 'offset' for 'size' bytes
@@ -1627,6 +1630,11 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 	} 
 
 	printf("tfs_read(): CHECKING INODE %d\n", mynode->ino);
+
+	if(offset > mynode->size){
+		printf("tfs_read() Error: Offset is larger than file size\n");
+		return -1;
+	}
 
 	// Step 2: Based on size and offset, read its data blocks from disk
 	//Loop through data block pointers
@@ -1665,9 +1673,12 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	int starting_block;
 	int rel_offset;
 	int i;
-	int dsb = sb->d_start_blk;
+	//int dsb = sb->d_start_blk; //TODO: REMOVE?
 	int block_ptr;
 	int blocks_read = 0;
+
+
+	printf("tfs_write(): Starting. . . \n\tSize: %ld\n\tOffset:%ld\n", size, offset);
 
 	// Handle unaligned write:
 	
@@ -1717,10 +1728,22 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	printf("tfs_write(): READING DATA BLOCKS. . . \n");
 	for(i = 0; i < num_needed; i++){
 		tblock = starting_block + i;
+		if(tblock > 16){
+			printf("tfs_write(): EXCEEDED AVAILABLE BLOCK SPACE (tblock: %d > 16) *** \n", tblock);
+			return -1;
+			//break; //TODO: HANDLE THIS CASE
+		}
 		block_ptr = mynode->direct_ptr[tblock];
 		printf("tfs_write(): Direct Ptr#: %d -- Block#: %d\n", tblock, block_ptr);
 
-		if(block_ptr < dsb) continue; //TODO: Change to a stopping point?
+		//if(block_ptr == -1) continue; //TODO: Change to a stopping point?
+		if(block_ptr == -1){
+			printf("\t--> Block not yet allocated! Allocating now. . .\n");
+			mynode->direct_ptr[tblock] = sb->d_start_blk + get_avail_blkno();
+			block_ptr = mynode->direct_ptr[tblock];
+			printf("\t ALLOCATED NEW BLOCK#: %d\n", block_ptr);
+			
+		}
 
 		// Indicates at which point in db_buff you would like to load block data into
 		db_buff_offset = BLOCK_SIZE * blocks_read;
@@ -1742,7 +1765,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 		
 	}
 	printf("tfs_write(): * DONE * READING DATA BLOCKS. . . \n");
-
+	
 	/* Now the disk blocks are loaded into db_buff, we transfer the data from our write buffer into 
 	db_buff starting at rel_offset
 	
@@ -1771,6 +1794,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	mynode->vstat.st_mtime = time(NULL);
 
 	//TODO: Update size in inode 
+	mynode->size += size;
 
 	ret = writei(mynode->ino, mynode);
 	if (ret < 0 || ret == ENOENT){
