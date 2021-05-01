@@ -5,10 +5,10 @@ LDFLAGS=-lfuse
 OBJ=tfs.o block.o
 
 %.o: %.c
-	$(CC) -c $(CFLAGS) $< -o $@
+	$(CC) -lpthread -c $(CFLAGS) $< -o $@
 
 tfs: $(OBJ)
-	$(CC) $(OBJ) $(LDFLAGS) -o tfs
+	$(CC) $(OBJ) $(LDFLAGS) -lpthread -o tfs
 
 .PHONY: clean
 clean:
