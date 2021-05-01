@@ -1606,6 +1606,8 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 	int dsb = sb->d_start_blk;
 	int mybuff_offset;
 
+
+	printf("tfs_read(): Starting. . .\n\tRead Size: %ld\n\tOffset amount: %ld\n", size, offset);
 	if(offset > size){
 		printf("tfs_read() Error: Offset is larger than file size");
 		return -1;
@@ -1623,6 +1625,8 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 		free(mynode);
 		return -1;
 	} 
+
+	printf("tfs_read(): CHECKING INODE %d\n", mynode->ino);
 
 	// Step 2: Based on size and offset, read its data blocks from disk
 	//Loop through data block pointers
@@ -1650,6 +1654,7 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 	}
 	// Step 3: copy the correct amount of data from offset to buffer
 	memcpy(buffer, mybuffer+offset, size);
+	printf("tfs_read(): New Output buffer contents: \n%s", buffer);
 	// Note: this function should return the amount of bytes you copied to buffer
 	return size;
 }
@@ -1662,8 +1667,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	int i;
 	int dsb = sb->d_start_blk;
 	int block_ptr;
-	int blocks_read;
-
+	int blocks_read = 0;
 
 	// Handle unaligned write:
 	
@@ -1714,7 +1718,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	for(i = 0; i < num_needed; i++){
 		tblock = starting_block + i;
 		block_ptr = mynode->direct_ptr[tblock];
-		printf("tfs_write(): Ptr#: %d -- Block#: %d\n", tblock, block_ptr);
+		printf("tfs_write(): Direct Ptr#: %d -- Block#: %d\n", tblock, block_ptr);
 
 		if(block_ptr < dsb) continue; //TODO: Change to a stopping point?
 
@@ -1724,6 +1728,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 
 		//Read whole block into db_buff starting at db_buff_offset
 		pthread_mutex_lock(&lock);
+		printf("tfs_write(): About to read data block %d into db_buff offset %d\n", block_ptr, db_buff_offset);
 		ret = bio_read(block_ptr, db_buff + db_buff_offset);
 		pthread_mutex_unlock(&lock);
 
@@ -1743,7 +1748,10 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	
 	The db_buff should have enough room to directly write the write-buffer data into it
 	*/
+	printf("tfs_write(): OLD BUFFER CONTENTS:\n%s\n", db_buff);
 	memcpy(db_buff+rel_offset, buffer, size);
+
+	printf("tfs_write(): NEW BUFFER CONTENTS:\n%s\n", db_buff);
 
 	// Step 3: Write the correct amount of data from offset to disk
 	printf("tfs_write(): WRITING MODIFIED DATA BLOCKS. . . \n");
