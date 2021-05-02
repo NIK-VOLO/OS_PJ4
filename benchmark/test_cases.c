@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <time.h>
 
 /* You need to change this macro to your TFS mount point*/
 #define TESTDIR "/tmp/nv211/mountdir"
@@ -23,19 +24,24 @@ char buf[BLOCKSIZE];
 
 int main(int argc, char **argv) {
 
+	clock_t start, end, total;
 	int i, fd = 0, ret = 0;
 	struct stat st;
 
 	/* TEST 1: file create test */
+	start = clock();
 	if ((fd = creat(TESTDIR "/file", FILEPERM)) < 0) {
 		perror("creat");
 		printf("TEST 1: File create failure \n");
 		exit(1);
 	}
-	printf("TEST 1: File create Success \n");
+	end = clock();
+	total = (double)(end - start) / CLOCKS_PER_SEC;
+	printf("TEST 1: File create Success in %f seconds\n", total);
 
 
 	/* TEST 2: file small write test */
+	start = clock();
 	for (i = 0; i < ITERS; i++) {
 		//memset with some random data
 		memset(buf, 0x61 + i, BLOCKSIZE);
@@ -51,17 +57,23 @@ int main(int argc, char **argv) {
 		printf("TEST 2: File write failure \n");
 		exit(1);
 	}
-	printf("TEST 2: File write Success \n");
+	end = clock();
+	total = (double)(end - start) / CLOCKS_PER_SEC;
+	printf("TEST 2: File write Success in %f seconds\n", total);
 
 
 	/* TEST 3: file close */
+	start = clock()
 	if (close(fd) < 0) {
 		printf("TEST 3: File close failure \n");
 	}
-	printf("TEST 3: File close Success \n");
+	end = clock();
+	total = (double)(end - start) / CLOCKS_PER_SEC;
+	printf("TEST 3: File close Success in %s seconds\n", total);
 
 
 	/* Open for reading */
+	start = clock();
 	if ((fd = open(TESTDIR "/file", FILEPERM)) < 0) {
 		perror("open");
 		exit(1);
@@ -84,31 +96,39 @@ int main(int argc, char **argv) {
 		printf("TEST 4: File read failure \n");
 		exit(1);
 	}
-    
-	printf("TEST 4: File read Success \n");
+    end = clock();
+	total = (double)(end - start) / CLOCKS_PER_SEC;
+	printf("TEST 4: File read Success in %f seconds\n", total);
 	close(fd);
 
 
 	/* TEST 5: file remove test */
+	start = clock();
 	if ((ret = unlink(TESTDIR "/file")) < 0) {
 		perror("unlink");
 		printf("TEST 5: File unlink failure \n");
 		exit(1);
 	}
-	printf("TEST 5: File unlink success \n");
+	end = clock();
+	total = (double)(end - start) / CLOCKS_PER_SEC;
+	printf("TEST 5: File unlink success in %f seconds\n", total);
 
 
 	/* TEST 6: directory create test */
+	start = clock();
 	if ((ret = mkdir(TESTDIR "/files", DIRPERM)) < 0) {
 		perror("mkdir");
 		printf("TEST 6: failure. Check if dir %s already exists, and "
 			"if it exists, manually remove and re-run \n", TESTDIR "/files");
 		exit(1);
 	}
-	printf("TEST 6: Directory create success \n");
+	end = clock();
+	total = (double)(end - start) / CLOCKS_PER_SEC;
+	printf("TEST 6: Directory create success in %f seconds\n", total);
 
 
 	/* TEST 7: directory remove test */
+	start = clock();
 	if ((ret = rmdir(TESTDIR "/files")) < 0) {
 		perror("mkdir");
 		printf("TEST 7: Directory remove failure \n");
@@ -120,13 +140,15 @@ int main(int argc, char **argv) {
 		printf("TEST 7: Directory remove failure \n");
 		exit(1);
 	}
-
-	printf("TEST 7: Directory remove success \n");
+	end = clock();
+	total = (double)(end - start) / CLOCKS_PER_SEC;
+	printf("TEST 7: Directory remove success in %f seconds\n", total);
 
 
 	mkdir(TESTDIR "/files", DIRPERM);
 
 	/* TEST 8: sub-directory create test */
+	start = clock();
 	for (i = 0; i < N_FILES; ++i) {
 		char subdir_path[FSPATHLEN];
 		memset(subdir_path, 0, FSPATHLEN);
@@ -151,7 +173,9 @@ int main(int argc, char **argv) {
 			exit(1);
 		}
 	}
-	printf("TEST 8: Sub-directory create success \n");
+	end = clock();
+	total = (double)(end - start) / CLOCKS_PER_SEC;
+	printf("TEST 8: Sub-directory create success in %f seconds\n", total);
 
 
 	/* TEST 9: Large file write-read test */
