@@ -59,6 +59,15 @@ static void print_bitmap(bitmap_t bitmap){
 	printf("\n");
 }
 
+static void print_bitmap_sum(bitmap_t bitmap){
+	int i, total;
+	total = 0;
+	for(i = 0; i < sizeof(bitmap); i++){
+		total += get_bitmap(bitmap, i);
+	}
+	printf("Total = %d\n", total);
+}
+
 /* 
  * Get available inode number from bitmap
  */
