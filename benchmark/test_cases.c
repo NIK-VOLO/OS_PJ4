@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
 	}
 	end = clock();
 	total = (double)(end - start) / CLOCKS_PER_SEC;
-	printf("TEST 3: File close Success in %s seconds\n", total);
+	printf("TEST 3: File close Success in %f seconds\n", total);
 
 
 	/* Open for reading */

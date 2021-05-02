@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
 	}
 	end = clock();
 	total = (double)(end - start) / CLOCKS_PER_SEC;
-	printf("TEST 5: File unlink success in %s seconds\n", total);
+	printf("TEST 5: File unlink success in %f seconds\n", total);
 
 
 	/* Directory creation test */
