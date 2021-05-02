@@ -232,8 +232,6 @@ int writei(uint16_t ino, struct inode *inode) {
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
-	//TODO: Find out why we're given name_len
-
 	// Step 1: Call readi() to get the inode using ino (inode number of current directory)
 	struct inode* mynode = malloc(sizeof(struct inode));
 	readi(ino, mynode);
@@ -253,14 +251,12 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 		int read_ret = bio_read(dirent_index[i], buffer);
 		pthread_mutex_unlock(&lock);
 		if (read_ret < 0) {
-			printf("Error in dir_find(): Unable to read block of current directory\n"); //TODO: Handle this error
+			printf("Error in dir_find(): Unable to read block of current directory\n");
 		}
 
 		// Locate a dirent within this block
 		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
-			// Break loop if j exceeds the size of this directory //TODO: Double check this location
-			// TODO: Make it check more as well (maybe link count? )
 			if(j > mynode->size){
 				break;
 			}
@@ -307,14 +303,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	struct dirent* target_dirent = malloc(sizeof(struct dirent));
 	for (i=0; i<16; i++) {
 
-		//if (dirent_index[i] == -1) continue; //TODO: DOUBLE CHECK THIS
 		if (dirent_index[i] == -1) break;
-
-		//Keep track of what the first usable block is
-		// if(avail_flag == 0){
-		// 	first_avail_block = dirent_index[i];
-		// 	avail_flag = 1;
-		// }
 		
 		pthread_mutex_lock(&lock);
 		int read_ret = bio_read(dirent_index[i], buffer);
@@ -328,16 +317,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 		printf("dir_add(): Reading data block %d for existing dir name '%s'. . .\n", dirent_index[i], fname);
 		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
-			// Break loop if j exceeds the size of this directory
-			// if(j > dir_inode.size){ //TODO: Double check this location
-			// 	new_pos_flag = 1;
-			// 	break;
-			// }
-
 			memcpy(my_dirent, buffer + j, sizeof(struct dirent));
-			//printf("\t --> Dir Name: '%s' at block offset %d\n", my_dirent->name, j);
 
-			//TODO: DOUBLE CHECK THIS
 			//Set target_dirent to the earliest open position
 			if(strcmp(my_dirent->name, "") == 0){
 				printf("\tFound an empty dirent! setting target_dirent\n");
@@ -355,13 +336,9 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 		}
 	}
 
-	//If new_pos_flag is set (indicates j surpassed current directory size) and there is still room in the block
-	// if(new_pos_flag == 1 && j < BLOCK_SIZE){
-	// 	//Set my_dirent to the next position
-	// 	printf("dir_add(): ** SPECIAL CASE: Still room in block, but the next data is garbage (can't read it)\n");
-	// 	memcpy(my_dirent, buffer+j+sizeof(struct dirent), sizeof(struct dirent));
-	// }
+	
 	printf("dir_add(): Target_dirent:\n\tValid = %d\n", target_dirent->valid);
+
 	// Update my_diren to the first open dirent position
 	if(target_dirent->valid == 0){
 		memcpy(my_dirent, target_dirent, sizeof(struct dirent));
@@ -399,7 +376,6 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 		
 		for (j=0; j<BLOCK_SIZE-sizeof(struct dirent); j+=sizeof(struct dirent)) {
 
-			// Break loop if j exceeds the size of this directory //TODO: Double check this location
 			if(j > dir_inode.size){
 				break;
 			}
@@ -407,7 +383,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 			// Look for zeroes
 			memcpy(temp_dirent, buffer2 + j, sizeof(struct dirent));
 			printf("\t--> dir_add(): temp_dirent->valid = %d\n", temp_dirent->valid);
-			//TODO: temp_dirent->valid > 1 is a fix for when the data is unreadable and shows a random# > 1
+
+			// temp_dirent->valid > 1 is a fix for when the data is unreadable and shows a random# > 1
 			if (temp_dirent->valid == 0 || temp_dirent->valid > 1) {
 
 				printf("dir_add(): Writing in existing block\n");
@@ -525,10 +502,6 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 			if (strcmp_ret == 0) {
 				// Name matches, delete this
 				
-				//TODO: Check to see if directory has content (May not need in here, implemented in tfs_rmdir())
-
-				//TODO: Clear bitmap (may not need in here)
-
 				memset(buffer + j, 0, sizeof(struct dirent));
 				pthread_mutex_lock(&lock);
 				bio_write(dirent_index[i], buffer);
@@ -776,7 +749,6 @@ int tfs_mkfs() {
 		// write the buffer contents to disk
 
 	
-	//TODO: This might not be necessary --> disk file already opened in dev_init
 	printf("tfs_mkfs(): Check 2 . . . \n");
 	open = dev_open(diskfile_path);
 	if(open == -1){
@@ -863,19 +835,18 @@ int tfs_mkfs() {
 
 	//update bitmap information for root directory
 	set_bitmap(inode_map, 0);
-	set_bitmap(data_map, 0); //TODO: Double check this
-	
+	set_bitmap(data_map, 0); 	
 
 	printf("tfs_mkfs(): Check 5 . . . \n");
-	//TODO: update inode for root directory
+	
 	root_inode = malloc(sizeof(struct inode));
 	if(root_inode == NULL){
 		// Malloc Failed somehow
 		return -1;
 	}
 	root_inode->ino = 0;
-	root_inode->valid = I_VALID; //TODO: Double check this
-	root_inode->type = TFS_DIR; //TODO: Double check this
+	root_inode->valid = I_VALID;
+	root_inode->type = TFS_DIR;
 	root_inode->link = 2;
 	root_inode->direct_ptr[0] = sb->d_start_blk;
 
@@ -1108,7 +1079,6 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 		}
 		printf("Loaded data bitmap. . .\n|-- Index at 0: %d\n", get_bitmap(data_map,0));
 
-		//***TODO: FIX HOW READING FROM DISK WORKS (buffer of size BLOCK_SIZE first, then extract data)
 		printf("tfs_init(): Check 8 . . . \n");
 		//clear buffer
 		memset(buf, 0, BLOCK_SIZE);
