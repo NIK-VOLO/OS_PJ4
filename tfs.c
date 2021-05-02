@@ -59,11 +59,11 @@ static void print_bitmap(bitmap_t bitmap){
 	printf("\n");
 }
 
-static void print_bitmap_sum(bitmap_t bitmap){
+static void print_bitmap_sum(bitmap_t* bitmap, int len){
 	int i, total;
 	total = 0;
-	for(i = 0; i < sizeof(bitmap); i++){
-		total += get_bitmap(bitmap, i);
+	for(i = 0; i < (len / 8); i++){
+		total += get_bitmap(bitmap[i], i);
 	}
 	printf("used = %d\n", total);
 }
@@ -1892,9 +1892,9 @@ static int tfs_unlink(const char *path) {
 
 	printf("tfs_unlink(): BITMAPS AFTER:\n");
 	printf("\tData Map: ");
-	print_bitmap(data_map);
+	print_bitmap(data_map, MAX_DNUM);
 	printf("\tInode Map: ");
-	print_bitmap(inode_map);
+	print_bitmap(inode_map, MAX_INUM);
 
 	//Write bitmaps to disk
 	pthread_mutex_lock(&lock);
