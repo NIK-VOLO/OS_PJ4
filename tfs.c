@@ -1217,8 +1217,7 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 
 		block_no = mynode->direct_ptr[i];
 
-		//NOTE: Data blocks start at block number ~67
-		//TODO: Change to check if the pointer number is < sb->d_start_blk (67)
+		//NOTE: Data blocks start at block number ~67 for block size 4096
 		if (block_no == -1) continue;
 		printf("tfs_readdir(): Inode #%d Direct Pointer = %d\n", mynode->ino, block_no);
 
@@ -1228,7 +1227,6 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 		pthread_mutex_unlock(&lock);
 		if (read_ret < 0) {
 			printf("Error in dir_find(): Unable to read block of current directory\n");
-			//TODO: Handle this error
 			continue;
 		}
 
@@ -1239,7 +1237,6 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 			
 
 			// Break loop if j exceeds the size of this directory
-			//TODO: Change this so it compares the number of valid names to the link count
 			if(j > mynode->size && link_count >= mynode->link){
 				break;
 			}
@@ -1313,7 +1310,6 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 		return -1;
 	}
 
-	//TODO: Increase the size of the parent directory (I think this should be done in dir_add)
 
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
 	printf("tfs_mkdir(): CHECK 4. . . \n");
@@ -1327,14 +1323,13 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 		return -1;
 	}
 
-	//TODO: Increment the link count of the parent dir (Maybe in dir_add?)
 
 	// Step 5: Update inode for target directory
 	printf("tfs_mkdir(): CHECK 5. . . \n");
 	new_node = malloc(sizeof(struct inode));
 	new_node->ino = new_ino;
 	new_node->valid = I_VALID;
-	new_node->size = sizeof(struct dirent) * 2; //TODO: Size of a new inode? (0 because the new dir doesn't contain any dirents?)
+	new_node->size = sizeof(struct dirent) * 2; 
 	new_node->type = TFS_DIR;
 	new_node->link = 2;
 
@@ -1561,14 +1556,13 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 		return -1;
 	}
 
-	//TODO: Increment the link count of the parent dir (Maybe in dir_add?)
 
 	// Step 5: Update inode for target file
 	printf("tfs_create(): CHECK 5. . . \n");
 	new_node = malloc(sizeof(struct inode));
 	new_node->ino = new_ino;
 	new_node->valid = I_VALID;
-	new_node->size = 0; //TODO: Size of a new inode? (0 because the new file doesn't contain any data?)
+	new_node->size = 0; 
 	new_node->type = TFS_REG;
 	new_node->link = 1;
 	//Create stat struct for new node's vstat
@@ -1624,7 +1618,7 @@ static int tfs_open(const char *path, struct fuse_file_info *fi) {
 	} 
 	// Step 2: If not find, return -1
 
-	//TODO: Is this all we have to do?
+	
 
 	free(mynode);
 	return 0;
@@ -1637,7 +1631,7 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 	int read_ret;
 	int i;
 	int blocks_read = 0;
-	int dsb = sb->d_start_blk;
+	int dsb = (int) sb->d_start_blk;
 	int mybuff_offset;
 
 
@@ -1669,7 +1663,7 @@ static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, s
 	for(i = 0; i < 16; i++){
 		block_ptr = mynode->direct_ptr[i];
 
-		//ignore invalid pointers (less than the datablock region) //TODO: Should we make -1 count as a stopping point? The direct pointers should be contiguous I think.
+		//ignore invalid pointers (less than the datablock region) 
 		if (block_ptr < dsb) continue;
 
 		// Indicates at which point in mybuffer you would like to load block data into
@@ -1701,7 +1695,6 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	int starting_block;
 	int rel_offset;
 	int i;
-	//int dsb = sb->d_start_blk; //TODO: REMOVE?
 	int block_ptr;
 	int blocks_read = 0;
 
@@ -1732,12 +1725,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	num_needed = num_blocks_needed(BLOCK_SIZE, size+rel_offset);
 	printf("tfs_write(): Number of blocks needed to change: %d\n", num_needed);
 
-	// Create local buffer (new_buffer) that will store the data in a block-aligned manner 
-	// Now we can read/write from this block-by-block
-	char new_buffer[BLOCK_SIZE * num_needed]; //TODO: This may be redundant
-	memcpy(new_buffer, buffer, size);
-
-
+	
 	// Step 1: You could call get_node_by_path() to get inode from path
 	struct inode* mynode = malloc(sizeof(struct inode));
 	int ret = get_node_by_path(path, 0, mynode);
@@ -1759,12 +1747,10 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 		if(tblock > 16){
 			printf("tfs_write(): EXCEEDED AVAILABLE BLOCK SPACE (tblock: %d > 16) *** \n", tblock);
 			return -1;
-			//break; //TODO: HANDLE THIS CASE
 		}
 		block_ptr = mynode->direct_ptr[tblock];
 		printf("tfs_write(): Direct Ptr#: %d -- Block#: %d\n", tblock, block_ptr);
 
-		//if(block_ptr == -1) continue; //TODO: Change to a stopping point?
 		if(block_ptr == -1){
 			printf("\t--> Block not yet allocated! Allocating now. . .\n");
 			mynode->direct_ptr[tblock] = sb->d_start_blk + get_avail_blkno();
@@ -1812,7 +1798,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 		printf("tfs_write(): Ptr#: %d -- Block#: %d\n", tblock, block_ptr);
 		// Write to file blocks using the respective positions in db_buff
 		pthread_mutex_lock(&lock);
-		ret = bio_write(block_ptr, db_buff+(BLOCK_SIZE * i)); //TODO: Double check this
+		ret = bio_write(block_ptr, db_buff+(BLOCK_SIZE * i)); 
 		pthread_mutex_unlock(&lock);
 	}
 	printf("tfs_write(): * DONE * WRITING MODIFIED DATA BLOCKS. . . \n");
@@ -1821,7 +1807,6 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	mynode->vstat.st_atime = time(NULL);
 	mynode->vstat.st_mtime = time(NULL);
 
-	//TODO: Update size in inode 
 	mynode->size += size;
 
 	ret = writei(mynode->ino, mynode);
@@ -1842,7 +1827,7 @@ static int tfs_unlink(const char *path) {
 	struct inode* mynode;
 	int ret;
 	int i;
-	int dsb = sb->d_start_blk;
+	int dsb = (int) sb->d_start_blk;
 	int dm_bit;
 	int block_ptr;
 
@@ -1878,7 +1863,7 @@ static int tfs_unlink(const char *path) {
 	for(i = 0; i < 16; i++){
 		// Absolute data block number
 		block_ptr = mynode->direct_ptr[i];
-		if(block_ptr < dsb) continue; //TODO: Double check this
+		if(block_ptr < dsb) continue; 
 
 		// Index of bit in the data_map
 		dm_bit = block_ptr - dsb;
