@@ -25,8 +25,10 @@ int main(int argc, char **argv) {
 
 	int i, fd = 0, ret = 0;
 	struct stat st;
-	clock_t start, end, total;
+	clock_t start, end, big_start, big_end;
+	double total, big_total;
 
+	big_start = clock();
 	start = clock();
 	if ((fd = creat(TESTDIR "/file", FILEPERM)) < 0) {
 		perror("creat");
@@ -157,6 +159,8 @@ int main(int argc, char **argv) {
 	total = (double)(end - start) / CLOCKS_PER_SEC;
 	printf("TEST 7: Sub-directory create success in %f seconds\n", total);
 
-	printf("Benchmark completed \n");
+	big_end = clock();
+	big_total = (double)(big_end - big_start) / CLOCKS_PER_SEC;
+	printf("Benchmark completed in %f seconds TOTAL\n", big_total);
 	return 0;
 }

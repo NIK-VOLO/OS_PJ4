@@ -24,9 +24,12 @@ char buf[BLOCKSIZE];
 
 int main(int argc, char **argv) {
 
-	clock_t start, end, total;
+	clock_t start, end, big_start, big_end;
+	double total, big_total;
 	int i, fd = 0, ret = 0;
 	struct stat st;
+
+	big_start = clock();
 
 	/* TEST 1: file create test */
 	start = clock();
@@ -176,6 +179,10 @@ int main(int argc, char **argv) {
 	end = clock();
 	total = (double)(end - start) / CLOCKS_PER_SEC;
 	printf("TEST 8: Sub-directory create success in %f seconds\n", total);
+
+	big_end = clock();
+	big_total = (double)(big_end - big_start) / CLOCKS_PER_SEC;
+	printf("TESTS 1-8 completed in %f seconds TOTAL", big_total);
 
 
 	/* TEST 9: Large file write-read test */
