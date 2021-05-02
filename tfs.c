@@ -59,11 +59,11 @@ static void print_bitmap(bitmap_t bitmap){
 	printf("\n");
 }
 
-static void print_bitmap_sum(bitmap_t* bitmap, int len){
+static void print_bitmap_sum(bitmap_t bitmap, int len){
 	int i, total;
 	total = 0;
-	for(i = 0; i < (len / 8); i++){
-		total += get_bitmap(bitmap[i], i);
+	for(i = 0; i < len; i++){
+		total += get_bitmap(bitmap, i);
 	}
 	printf("used = %d\n", total);
 }
@@ -1114,9 +1114,9 @@ static void tfs_destroy(void *userdata) {
 
 	// Print use of data and inode blocks
 	printf("inode blocks ");
-	print_bitmap_sum(inode_map);
+	print_bitmap_sum(inode_map, MAX_INUM);
 	printf("data blocks ");
-	print_bitmap_sum(data_map);
+	print_bitmap_sum(data_map, MAX_DNUM);
 
 	// Step 1: De-allocate in-memory data structures
 	printf("tfs_destroy(): Check 1 . . . \n");
@@ -1892,9 +1892,9 @@ static int tfs_unlink(const char *path) {
 
 	printf("tfs_unlink(): BITMAPS AFTER:\n");
 	printf("\tData Map: ");
-	print_bitmap(data_map, MAX_DNUM);
+	print_bitmap(data_map);
 	printf("\tInode Map: ");
-	print_bitmap(inode_map, MAX_INUM);
+	print_bitmap(inode_map);
 
 	//Write bitmaps to disk
 	pthread_mutex_lock(&lock);
