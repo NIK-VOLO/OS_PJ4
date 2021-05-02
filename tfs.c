@@ -65,7 +65,7 @@ static void print_bitmap_sum(bitmap_t bitmap){
 	for(i = 0; i < sizeof(bitmap); i++){
 		total += get_bitmap(bitmap, i);
 	}
-	printf("Total = %d\n", total);
+	printf("used = %d\n", total);
 }
 
 /* 
@@ -1111,6 +1111,12 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 }
 
 static void tfs_destroy(void *userdata) {
+
+	// Print use of data and inode blocks
+	printf("inode blocks ");
+	print_bitmap_sum(inode_map);
+	printf("data blocks ");
+	print_bitmap_sum(data_map);
 
 	// Step 1: De-allocate in-memory data structures
 	printf("tfs_destroy(): Check 1 . . . \n");
