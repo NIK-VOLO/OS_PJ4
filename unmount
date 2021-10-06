@@ -1,1 +1,1 @@
-fusermount -u /tmp/nv211/mountdir
+fusermount -u /tmp/mountdir
