@@ -1,1 +1,1 @@
-fusermount -u /tmp/pet27/mountdir
+fusermount -u /tmp/mountdir
