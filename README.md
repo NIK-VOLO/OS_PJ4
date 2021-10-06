@@ -1,8 +1,10 @@
 # Virtual File System (Linux)
 
-#### This is a university project where we were tasked to build a virtual file system using the FUSE library in the C programming language. 
+### This is a university project where we were tasked to build a virtual file system using the FUSE library in the C programming language. 
 
 Creates a virtual disk file + file system and redirects any IO to this FS instead of the OS. 
+
+Our report is available in this repository "Tiny File System (Detailed Report).pdf," which discusses bechmark results and our implementation rationale.
 
 *Compiling and testing were performed remotely on University machines, which I no longer have access to.
 
