@@ -1,4 +1,4 @@
-fusermount -u /tmp/pet27/mountdir
+fusermount -u /tmp/mountdir
 make clean
 make
-./tfs -s -d /tmp/pet27/mountdir
+./tfs -s -d /tmp/mountdir
