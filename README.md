@@ -1,9 +1,21 @@
-# OS_PJ4
-File System
+# Virtual File System (Linux)
+
+#### This is a university project where we were tasked to build a virtual file system using the FUSE library in the C programming language. 
+
+Creates a virtual disk file + file system and redirects any IO to this FS instead of the OS. 
+
+*Compiling and testing were performed remotely on University machines, which I no longer have access to.
+
+## In Review
+What I learned from this project in hindsight
+- Focus more on keeping the code clean as you work, don't wait until later to go back and clean it
+- Don't use print statements as much for logging
+- Structure your functions more and test extensively
+- Do more research on best practices
 
 
 
-## Office Hour Notes:
+<!--  ## Office Hour Notes:
 
 - Goal:
     - FUSE driver redirects operations that would usually be sent to the OS to the user space instead.
@@ -15,8 +27,8 @@ File System
     - Block device is a set of N sized blocks (ex: 4KB)
         - We are using a file that represents the disk (ex: 32 MB)
     - Any time we provide an offset to find a particular block -- read/write to the block
-    - Cannot read/write 1 byte from the block --> Must use the entire block
-        - To make a change to the blockl: read entire block into a buffer --> Make modifications here --> Then write back to block
+    - Cannot read/write 1 byte from the block -- Must use the entire block
+        - To make a change to the blockl: read entire block into a buffer -- Make modifications here -- Then write back to block
 
     - Need to figure out how to determine how to find the correct block for a particular piece of data
 
@@ -41,7 +53,7 @@ File System
         - Type
         - Direct/indirect pointers: 
             - Direct: What physical blocks is the file using
-                - IDEA: The data type is an int --> Consider the int as an offset from the start of the data block region ***
+                - IDEA: The data type is an int -- Consider the int as an offset from the start of the data block region ***
         - Each block can have block_size/inode_size inodes
         - Once we know the inode number we can fetch inode information by going to the block and calculating the position where it should be
         - stat() will store information about the inode
@@ -66,9 +78,8 @@ File System
     - readi/writei():
         - Reading/writing inode blocks
         - Each inode block can have more than 1 inode
-        - readi --> If inode# known, it knows the size of the inode block and the size of the inode struct, finds the exact block and position the inode resides. 
+        - readi -- If inode# known, it knows the size of the inode block and the size of the inode struct, finds the exact block and position the inode resides. 
             - Fetches inode information from disk and assigns it to an inode struct
 
         
-         # Left off here, review video
-
+         # Left off here, review video -->
