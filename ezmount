@@ -1,4 +1,4 @@
-fusermount -u /tmp/nv211/mountdir
+fusermount -u /tmp/mountdir
 make clean
 make
-./tfs -s -d /tmp/nv211/mountdir
+./tfs -s -d /tmp/mountdir
