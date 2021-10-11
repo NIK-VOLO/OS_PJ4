@@ -4,7 +4,7 @@
 
 Creates a virtual disk file + file system and redirects any IO to this FS instead of the OS. 
 
-Our report is available in this repository "Tiny File System (Detailed Report).pdf," which discusses bechmark results and our implementation rationale.
+<a href="Tiny File System (Detailed Report).pdf">Our report</a> is available in this repository, where we discuss bechmark results and our implementation rationale.
 
 *Compiling and testing were performed remotely on University machines, which I no longer have access to.
 
